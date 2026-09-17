@@ -1,0 +1,56 @@
+{
+  "name": "twenty",
+  "version": "0.2.1",
+  "private": true,
+  "license": "AGPL-3.0",
+  "engines": {
+    "node": "^24.5.0",
+    "npm": ">=10.0.0"
+  },
+  "packageManager": "npm@11.19.0",
+  "scripts": {
+    "docker:up": "docker compose -f packages/twenty-docker/docker-compose.dev.yml up -d --wait db redis",
+    "docker:down": "docker compose -f packages/twenty-docker/docker-compose.dev.yml down",
+    "docker:build": "docker compose build",
+    "docker:dev": "docker compose up --build -d --wait && node scripts/open-dev-app.cjs && docker compose watch --no-up app",
+    "dev:setup": "npm run docker:up && node scripts/ensure-dev-database.cjs",
+    "dev": "npm run docker:dev",
+    "dev:host": "npm run dev:setup && cross-env NODE_ENV=development NODE_PORT=3002 PG_DATABASE_URL=postgres://postgres:postgres@localhost:5433/default REDIS_URL=redis://localhost:6380 APP_SECRET=twenty-local-dev-secret SIGN_IN_PREFILLED=true IS_WORKSPACE_CREATION_LIMITED_TO_SERVER_ADMINS=false FRONTEND_URL=http://localhost:3001 REACT_APP_SERVER_BASE_URL=http://localhost:3002 npx nx run-many --target=start --projects=twenty-server,twenty-front --parallel=2",
+    "dev:docker": "node scripts/ensure-dev-database.cjs && cross-env NODE_ENV=development NODE_PORT=3002 PG_DATABASE_URL=postgres://postgres:postgres@db:5432/default REDIS_URL=redis://redis:6379 APP_SECRET=twenty-local-dev-secret SIGN_IN_PREFILLED=true IS_WORKSPACE_CREATION_LIMITED_TO_SERVER_ADMINS=false FRONTEND_URL=http://localhost:3001 REACT_APP_SERVER_BASE_URL=http://localhost:3002 node node_modules/nx/dist/bin/nx.js run-many --target=start --projects=twenty-server,twenty-front --parallel=2",
+    "dev:front": "cross-env REACT_APP_SERVER_BASE_URL=http://localhost:3002 npx nx run twenty-front:start",
+    "dev:server": "npm run dev:setup && cross-env NODE_ENV=development NODE_PORT=3002 PG_DATABASE_URL=postgres://postgres:postgres@localhost:5433/default REDIS_URL=redis://localhost:6380 APP_SECRET=twenty-local-dev-secret SIGN_IN_PREFILLED=true IS_WORKSPACE_CREATION_LIMITED_TO_SERVER_ADMINS=false FRONTEND_URL=http://localhost:3001 npx nx run twenty-server:start",
+    "start": "npm run dev",
+    "postinstall": "node scripts/apply-npm-patches.cjs"
+  },
+  "workspaces": [
+    "packages/twenty-front",
+    "packages/twenty-server",
+    "packages/twenty-emails",
+    "packages/twenty-ui",
+    "packages/twenty-shared",
+    "packages/twenty-sdk",
+    "packages/twenty-front-component-renderer",
+    "packages/twenty-client-sdk"
+  ],
+  "devDependencies": {
+    "@nx/jest": "22.7.8",
+    "@nx/js": "22.7.8",
+    "@nx/react": "22.7.8",
+    "@nx/storybook": "22.7.8",
+    "@nx/vite": "22.7.8",
+    "@nx/web": "22.7.8",
+    "ajv": "8.20.0",
+    "@swc/core": "1.15.18",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "cross-env": "^10.0.0",
+    "nx": "22.7.8",
+    "oxfmt": "0.50.0"
+  },
+  "nx": {},
+  "prettier": {
+    "singleQuote": true,
+    "trailingComma": "all",
+    "endOfLine": "lf"
+  }
+}

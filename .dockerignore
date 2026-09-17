@@ -1,0 +1,10 @@
+.git
+.env
+**/node_modules
+node_modules.yarn-backup
+.nx/cache
+**/.nx/cache
+**/dist
+**/.local-storage
+**/.env
+packages/twenty-server/.env

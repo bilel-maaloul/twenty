@@ -1,0 +1,2 @@
+include:
+  - path: ./packages/twenty-docker/docker-compose.dev.yml

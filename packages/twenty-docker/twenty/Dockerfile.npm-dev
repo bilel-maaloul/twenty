@@ -1,0 +1,34 @@
+FROM node:24.19.0-bookworm
+
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install --no-install-recommends -y build-essential curl postgresql-client python3 \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json .npmrc ./
+COPY patches ./patches
+COPY scripts/apply-npm-patches.cjs ./scripts/apply-npm-patches.cjs
+COPY packages/twenty-front/package.json packages/twenty-front/package.json
+COPY packages/twenty-server/package.json packages/twenty-server/package.json
+COPY packages/twenty-emails/package.json packages/twenty-emails/package.json
+COPY packages/twenty-ui/package.json packages/twenty-ui/package.json
+COPY packages/twenty-shared/package.json packages/twenty-shared/package.json
+COPY packages/twenty-sdk/package.json packages/twenty-sdk/package.json
+COPY packages/twenty-front-component-renderer/package.json packages/twenty-front-component-renderer/package.json
+COPY packages/twenty-client-sdk/package.json packages/twenty-client-sdk/package.json
+
+RUN npm install --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
+RUN npm install --no-save --include=optional --ignore-scripts \
+  @rolldown/binding-linux-x64-gnu@1.2.8 \
+  sass-embedded-linux-x64@1.104.1 \
+  lightningcss-linux-x64-gnu@1.33.0
+
+COPY . .
+
+ENV NODE_ENV=development
+ENV TWENTY_DOCKER_DEV=true
+
+EXPOSE 3001 3002
+
+CMD ["npm", "run", "dev:docker"]
