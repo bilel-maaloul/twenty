@@ -5,7 +5,6 @@
 !.claude/settings.json
 !.claude/skills/
 **/**/node_modules/
-node_modules.yarn-backup/
 .cache
 
 # Ignore nested package-manager lockfile metadata.
