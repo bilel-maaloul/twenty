@@ -1,34 +1,49 @@
 # Twenty CRM — core workspace
 
-This is a lean CRM-only checkout. It keeps the React application, NestJS API,
-database migrations, supporting workspace libraries, integration assets, and
-Docker deployment files required to run the CRM.
+This checkout contains the Twenty CRM frontend, API, database migrations, and
+supporting workspace packages.
 
-## Run with Docker
+## Run locally on Windows without Docker
 
-Start Docker Desktop, then run:
+Install these local services first:
+
+- Node.js 24 and npm.
+- PostgreSQL 16, listening on port `5432`. PostgreSQL 18 may also work; use its
+  actual username, password, and port in the connection URL below.
+- Redis 7 or a Redis-compatible service, listening on port `6379`. On Windows,
+  Memurai Developer is one option. Its installer needs administrator access,
+  and the free developer service must be restarted after 10 days of continuous
+  uptime. Redis can also run inside WSL.
+
+Then, from the repository root:
+
+```powershell
+npm ci
+if (-not (Test-Path packages/twenty-server/.env)) {
+  Copy-Item packages/twenty-server/.env.example packages/twenty-server/.env
+}
+```
+
+Edit `packages/twenty-server/.env` and set `PG_DATABASE_URL` to match your local
+PostgreSQL credentials. The account must be allowed to create databases; the
+first run creates the `default` database. URL-encode reserved characters in
+the password (for example, `@` becomes `%40`). For example:
+
+```dotenv
+PG_DATABASE_URL=postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/default
+REDIS_URL=redis://127.0.0.1:6379
+```
+
+Start PostgreSQL and Redis/Memurai, then run:
 
 ```powershell
 npm run dev
 ```
 
-The application is available at [http://localhost:3001](http://localhost:3001).
-PostgreSQL and Redis run in Docker. Stop the watcher with `Ctrl+C`, and stop
-containers with:
+The local dev command does not start Docker. The frontend is available at
+[http://localhost:3001](http://localhost:3001), and the API at
+`http://localhost:3002`. Keep the terminal open while developing; press
+`Ctrl+C` to stop the app. The first run initializes the development database.
 
-```powershell
-docker compose down
-```
-
-## Run on the host
-
-Install the locked dependencies, start the local database services, and run the
-frontend and API together:
-
-```powershell
-npm ci
-npm run dev:host
-```
-
-The CRM frontend is in `packages/twenty-front` and the API, CRUD logic, and
-migrations are in `packages/twenty-server`.
+The frontend is in `packages/twenty-front`; the API and database migrations are
+in `packages/twenty-server`.
