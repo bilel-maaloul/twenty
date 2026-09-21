@@ -21,7 +21,16 @@ const StyledCardsContainer = styled.div`
   gap: ${themeCssVariables.spacing[2]};
 `;
 
-export const SettingsAccountsListEmptyStateCard = () => {
+export type SettingsAccountsListEmptyStateCardProps = {
+  apiOAuthOptions?: {
+    redirectLocation?: string;
+    skipMessageChannelConfiguration?: boolean;
+  };
+};
+
+export const SettingsAccountsListEmptyStateCard = ({
+  apiOAuthOptions,
+}: SettingsAccountsListEmptyStateCardProps) => {
   const { theme } = useContext(ThemeContext);
   const { triggerApisOAuth } = useTriggerApisOAuth();
 
@@ -52,7 +61,9 @@ export const SettingsAccountsListEmptyStateCard = () => {
         <SettingsCard
           Icon={<IconGoogle size={theme.icon.size.md} />}
           title={t`Connect with Google`}
-          onClick={() => triggerApisOAuth(ConnectedAccountProvider.GOOGLE)}
+          onClick={() =>
+            triggerApisOAuth(ConnectedAccountProvider.GOOGLE, apiOAuthOptions)
+          }
         />
       )}
 
@@ -60,7 +71,12 @@ export const SettingsAccountsListEmptyStateCard = () => {
         <SettingsCard
           Icon={<IconMicrosoft size={theme.icon.size.md} />}
           title={t`Connect with Microsoft`}
-          onClick={() => triggerApisOAuth(ConnectedAccountProvider.MICROSOFT)}
+          onClick={() =>
+            triggerApisOAuth(
+              ConnectedAccountProvider.MICROSOFT,
+              apiOAuthOptions,
+            )
+          }
         />
       )}
 
