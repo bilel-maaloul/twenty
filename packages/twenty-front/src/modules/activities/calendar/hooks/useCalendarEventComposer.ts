@@ -73,6 +73,7 @@ export const useCalendarEventComposer = ({
   const [addConferencing, setAddConferencing] = useState(false);
   const [dates, setDates] = useState(() =>
     getCalendarEventComposerDefaultDates({
+      initialDate: initialValues?.initialDate,
       now: Temporal.Now.instant(),
       timeZone: initialValues?.timeZone ?? 'UTC',
     }),
@@ -286,6 +287,7 @@ export const useCalendarEventComposer = ({
         }
       }
 
+      initialValues?.onCreated?.();
       onCreated();
     } finally {
       store.set(isCalendarEventComposerCreatingState.atom, false);
@@ -304,6 +306,7 @@ export const useCalendarEventComposer = ({
     isFullDay,
     location,
     onCreated,
+    initialValues,
     refetchTimelineCalendarEvents,
     sendInvitations,
     store,

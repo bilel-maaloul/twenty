@@ -4,6 +4,11 @@ import { Temporal } from 'temporal-polyfill';
 import { useCalendarEventComposer } from '@/activities/calendar/hooks/useCalendarEventComposer';
 import { type ObjectRecord } from '@/object-record/types/ObjectRecord';
 
+jest.mock('transliteration', () => ({
+  slugify: (value: string) => value,
+  transliterate: (value: string) => value,
+}));
+
 const mockCreateCalendarEvent = jest.fn();
 const mockCreateCalendarEventTargets = jest.fn();
 const mockRefetchTimelineCalendarEvents = jest.fn();

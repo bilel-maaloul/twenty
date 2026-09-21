@@ -23,6 +23,7 @@ export enum AppPath {
   Home = '/home',
   TasksPage = '/objects/tasks',
   OpportunitiesPage = '/objects/opportunities',
+  CalendarPage = '/calendar',
 
   RecordIndexPage = '/objects/:objectNamePlural',
   RecordShowPage = '/object/:objectNameSingular/:objectRecordId',

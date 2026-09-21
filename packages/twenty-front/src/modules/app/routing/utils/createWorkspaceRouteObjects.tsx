@@ -47,6 +47,12 @@ const MobileHomePage = lazy(() =>
   })),
 );
 
+const CalendarPage = lazy(() =>
+  import('~/pages/calendar/CalendarPage').then((module) => ({
+    default: module.CalendarPage,
+  })),
+);
+
 const NotFound = lazy(() =>
   import('~/pages/not-found/NotFound').then((module) => ({
     default: module.NotFound,
@@ -134,6 +140,17 @@ export const createWorkspaceRouteObjects = ({
           <MobileHomePage />
         </LazyRoute>
       ),
+    },
+    {
+      path: AppPath.CalendarPage,
+      element: (
+        <LazyRoute>
+          <CalendarPage />
+        </LazyRoute>
+      ),
+      handle: {
+        workspaceSurfaces: ['main'],
+      },
     },
     {
       path: SETTINGS_ROOT_PATH,

@@ -1,5 +1,5 @@
 import { AppPath } from 'twenty-shared/types';
-import { isValidElement, type ReactElement } from 'react';
+import { isValidElement } from 'react';
 import { createMemoryRouter, matchRoutes } from 'react-router-dom';
 
 import { getWorkspaceRouteObjectsForSurface } from '@/app/routing/utils/getWorkspaceRouteObjectsForSurface';
@@ -9,6 +9,11 @@ import {
   isWorkspaceLocationExpandableFromSidePanel,
 } from '@/app/routing/utils/isWorkspaceLocationAvailableOnSurface';
 import { SettingsProtectedRouteWrapper } from '@/settings/components/SettingsProtectedRouteWrapper';
+
+jest.mock('transliteration', () => ({
+  slugify: (value: string) => value,
+  transliterate: (value: string) => value,
+}));
 
 const SETTINGS_ROOT_PATH = AppPath.SettingsCatchAll.replace('/*', '');
 
@@ -23,6 +28,27 @@ describe('workspace route objects', () => {
       ]);
 
     expect(collectRouteIds(createWorkspaceRouteObjects({}))).toEqual([]);
+  });
+
+  it('registers the calendar page on the workspace surface', () => {
+    expect(createWorkspaceRouteObjects({}).map(({ path }) => path)).toContain(
+      AppPath.CalendarPage,
+    );
+  });
+
+  it('restores direct calendar navigation after page initialization', () => {
+    const mainRoutes = getWorkspaceRouteObjectsForSurface(
+      createWorkspaceRouteObjects({}),
+      'main',
+    );
+    const router = createMemoryRouter(mainRoutes, {
+      initialEntries: [AppPath.CalendarPage],
+    });
+
+    expect(router.state.location.pathname).toBe(AppPath.CalendarPage);
+    expect(router.state.matches.at(-1)?.route.path).toBe(AppPath.CalendarPage);
+
+    router.dispose();
   });
 
   it('can be embedded in a data router without route id collisions', () => {
@@ -72,10 +98,11 @@ describe('workspace route objects', () => {
     );
 
     expect(objectSettingsMatches).not.toBeNull();
-    expect(isValidElement(settingsGuardMatch?.route.element)).toBe(true);
-    expect((settingsGuardMatch?.route.element as ReactElement).type).toBe(
-      SettingsProtectedRouteWrapper,
-    );
+    const settingsGuardElement = settingsGuardMatch?.route.element;
+    expect(isValidElement(settingsGuardElement)).toBe(true);
+    expect(
+      isValidElement(settingsGuardElement) ? settingsGuardElement.type : null,
+    ).toBe(SettingsProtectedRouteWrapper);
     expect(matchRoutes(panelRoutes, '/settings/billing')).toBeNull();
     expect(matchRoutes(mainRoutes, '/settings/billing')).not.toBeNull();
   });
