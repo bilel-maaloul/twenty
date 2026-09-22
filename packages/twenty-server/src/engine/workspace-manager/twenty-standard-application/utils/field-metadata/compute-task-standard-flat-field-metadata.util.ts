@@ -405,7 +405,7 @@ export const buildTaskStandardFlatFieldMetadatas = ({
         relationType: RelationType.ONE_TO_MANY,
       },
       junctionTargetFieldUniversalIdentifier:
-        STANDARD_OBJECTS.calendarEventTarget.fields.targetTask
+        STANDARD_OBJECTS.calendarEventTarget.fields.calendarEvent
           .universalIdentifier,
     },
     standardObjectMetadataRelatedEntityIds,

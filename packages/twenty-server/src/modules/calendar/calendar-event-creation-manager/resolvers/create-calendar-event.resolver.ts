@@ -99,7 +99,7 @@ export class CreateCalendarEventResolver {
         success: true,
         iCalUid: createdEvent.iCalUid || undefined,
         conferenceLink: createdEvent.conferenceLinkUrl || undefined,
-        calendarEventId: calendarEventId ?? undefined,
+        calendarEventId,
       };
     } catch (error) {
       if (error instanceof ForbiddenException) {

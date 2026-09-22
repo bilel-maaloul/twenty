@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { CalendarChannelEntity } from 'src/engine/metadata-modules/calendar-channel/entities/calendar-channel.entity';
 import { ConnectedAccountEntity } from 'src/engine/metadata-modules/connected-account/entities/connected-account.entity';
 import { WorkspaceOrmManager } from 'src/engine/twenty-orm/workspace-orm.manager';
+import { buildSystemAuthContext } from 'src/engine/twenty-orm/utils/build-system-auth-context.util';
 import { getMissingCreateEventScopes } from 'src/modules/calendar/calendar-event-creation-manager/utils/get-missing-create-event-scopes.util';
 import { isCalendarCreationSupportedProvider } from 'src/modules/calendar/calendar-event-creation-manager/utils/is-calendar-creation-supported-provider.util';
 import { isValidTimeZone } from 'src/modules/calendar/calendar-event-creation-manager/utils/is-valid-time-zone.util';
@@ -112,14 +113,21 @@ export class CalendarEventComposerService {
     }
 
     if (isDefined(params.ownerId)) {
-      const workspaceMemberRepository =
-        this.workspaceOrmManager.getRepository<WorkspaceMemberWorkspaceEntity>(
-          'workspaceMember',
-          { shouldBypassPermissionChecks: true },
-        );
-      const owner = await workspaceMemberRepository.findOne({
-        where: { id: params.ownerId },
-      });
+      const owner = await this.workspaceOrmManager.executeInWorkspaceContext(
+        async () => {
+          const workspaceMemberRepository =
+            this.workspaceOrmManager.getRepository<WorkspaceMemberWorkspaceEntity>(
+              'workspaceMember',
+              { shouldBypassPermissionChecks: true },
+            );
+
+          return workspaceMemberRepository.findOne({
+            where: { id: params.ownerId },
+          });
+        },
+        buildSystemAuthContext(workspaceId),
+        { lite: true },
+      );
 
       if (!isDefined(owner)) {
         return { error: 'ownerId does not belong to this workspace' };

@@ -1,5 +1,4 @@
 import { CREATE_CALENDAR_EVENT } from '@/activities/calendar/graphql/mutations/createCalendarEvent';
-import { useRefetchTimelineCalendarEvents } from '@/activities/calendar/hooks/useRefetchTimelineCalendarEvents';
 import { useSnackBar } from '@/ui/feedback/snack-bar-manager/hooks/useSnackBar';
 import { useMutation } from '@apollo/client/react';
 import { t } from '@lingui/core/macro';
@@ -11,7 +10,6 @@ import {
 } from '~/generated-metadata/graphql';
 
 export const useCreateCalendarEvent = () => {
-  const { refetchTimelineCalendarEvents } = useRefetchTimelineCalendarEvents();
   const { enqueueErrorSnackBar, enqueueSuccessSnackBar } = useSnackBar();
 
   const [createCalendarEventMutation, { loading }] = useMutation<
@@ -26,11 +24,11 @@ export const useCreateCalendarEvent = () => {
           variables: { input },
         });
 
-        if (!result.data?.createCalendarEvent.success) {
+        const calendarEvent = result.data?.createCalendarEvent;
+
+        if (!calendarEvent?.success || !calendarEvent.calendarEventId) {
           enqueueErrorSnackBar({
-            message:
-              result.data?.createCalendarEvent.error ??
-              t`Failed to create calendar event`,
+            message: calendarEvent?.error ?? t`Failed to create calendar event`,
           });
 
           return { success: false };
@@ -40,12 +38,9 @@ export const useCreateCalendarEvent = () => {
           message: t`Calendar event created successfully`,
         });
 
-        await refetchTimelineCalendarEvents();
-
         return {
           success: true,
-          calendarEventId:
-            result.data.createCalendarEvent.calendarEventId ?? undefined,
+          calendarEventId: calendarEvent.calendarEventId,
         };
       } catch {
         enqueueErrorSnackBar({
@@ -55,12 +50,7 @@ export const useCreateCalendarEvent = () => {
         return { success: false };
       }
     },
-    [
-      refetchTimelineCalendarEvents,
-      createCalendarEventMutation,
-      enqueueErrorSnackBar,
-      enqueueSuccessSnackBar,
-    ],
+    [createCalendarEventMutation, enqueueErrorSnackBar, enqueueSuccessSnackBar],
   );
 
   return { createCalendarEvent, loading };

@@ -2,11 +2,21 @@ import { renderHook } from '@testing-library/react';
 
 import { useCreateCalendarEventTargets } from '@/activities/calendar/hooks/useCreateCalendarEventTargets';
 
+jest.mock('transliteration', () => ({
+  slugify: (value: string) => value,
+  transliterate: (value: string) => value,
+}));
+
 const mockCreateManyRecords = jest.fn();
 const mockUseObjectMorphJunctionConfig = jest.fn();
+const mockUseCreateManyRecords = jest.fn();
 
 jest.mock('@/object-record/hooks/useCreateManyRecords', () => ({
-  useCreateManyRecords: () => ({ createManyRecords: mockCreateManyRecords }),
+  useCreateManyRecords: (options: unknown) => {
+    mockUseCreateManyRecords(options);
+
+    return { createManyRecords: mockCreateManyRecords };
+  },
 }));
 
 jest.mock(
@@ -47,6 +57,17 @@ describe('useCreateCalendarEventTargets', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUseObjectMorphJunctionConfig.mockReturnValue(JUNCTION_CONFIG);
+  });
+
+  it('does not refetch aggregate queries for the junction implementation detail', () => {
+    renderHook(() => useCreateCalendarEventTargets());
+
+    expect(mockUseCreateManyRecords).toHaveBeenCalledWith(
+      expect.objectContaining({
+        objectNameSingular: 'calendarEventTarget',
+        shouldRefetchAggregateQueries: false,
+      }),
+    );
   });
 
   it('upserts the junction rows so they survive participant matching', async () => {

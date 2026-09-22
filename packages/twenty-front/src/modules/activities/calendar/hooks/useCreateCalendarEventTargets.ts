@@ -21,6 +21,10 @@ export const useCreateCalendarEventTargets = () => {
       objectNameSingular:
         junctionConfig?.junctionObjectMetadata.nameSingular ??
         CoreObjectNameSingular.CalendarEvent,
+      // The junction is an implementation detail of the calendar composer;
+      // its aggregate query is not required to refresh a calendar or record
+      // timeline and can compete with active object aggregate queries.
+      shouldRefetchAggregateQueries: false,
     });
 
   const createCalendarEventTargets = useCallback(

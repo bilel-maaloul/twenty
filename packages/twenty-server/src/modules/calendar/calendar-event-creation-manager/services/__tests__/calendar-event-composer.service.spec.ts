@@ -29,15 +29,22 @@ const buildService = (owner: { id: string } | null = { id: OWNER_ID }) => {
   const workspaceMemberRepository = {
     findOne: jest.fn().mockResolvedValue(owner),
   };
+  const executeInWorkspaceContext = jest
+    .fn()
+    .mockImplementation(async (callback: () => unknown) => callback());
   const workspaceOrmManager = {
     getRepository: jest.fn().mockReturnValue(workspaceMemberRepository),
+    executeInWorkspaceContext,
   };
 
-  return new CalendarEventComposerService(
-    connectedAccountRepository,
-    calendarChannelRepository,
-    workspaceOrmManager as unknown as WorkspaceOrmManager,
-  );
+  return {
+    executeInWorkspaceContext,
+    service: new CalendarEventComposerService(
+      connectedAccountRepository,
+      calendarChannelRepository,
+      workspaceOrmManager as unknown as WorkspaceOrmManager,
+    ),
+  };
 };
 
 const baseInput = {
@@ -51,8 +58,27 @@ const baseInput = {
 };
 
 describe('CalendarEventComposerService', () => {
+  it.each(['MEETING', 'CALL', 'TASK', 'APPOINTMENT', 'OTHER'])(
+    'accepts the %s calendar event type',
+    async (eventType) => {
+      const { service } = buildService();
+      const result = await service.composeCalendarEvent(
+        { ...baseInput, eventType },
+        WORKSPACE_ID,
+      );
+
+      expect(result).toMatchObject({
+        success: true,
+        data: {
+          input: expect.objectContaining({ eventType }),
+        },
+      });
+    },
+  );
+
   it('normalizes calendar metadata for a valid event', async () => {
-    const result = await buildService().composeCalendarEvent(
+    const { executeInWorkspaceContext, service } = buildService();
+    const result = await service.composeCalendarEvent(
       {
         ...baseInput,
         eventType: 'CALL',
@@ -76,10 +102,12 @@ describe('CalendarEventComposerService', () => {
         }),
       },
     });
+    expect(executeInWorkspaceContext).toHaveBeenCalledTimes(1);
   });
 
   it('rejects recurring events without a boundary', async () => {
-    const result = await buildService().composeCalendarEvent(
+    const { service } = buildService();
+    const result = await service.composeCalendarEvent(
       { ...baseInput, recurrenceFrequency: 'DAILY' },
       WORKSPACE_ID,
     );
@@ -92,7 +120,8 @@ describe('CalendarEventComposerService', () => {
   });
 
   it('rejects unsupported reminder values', async () => {
-    const result = await buildService().composeCalendarEvent(
+    const { service } = buildService();
+    const result = await service.composeCalendarEvent(
       { ...baseInput, reminderMinutesBefore: 10 },
       WORKSPACE_ID,
     );
@@ -103,8 +132,22 @@ describe('CalendarEventComposerService', () => {
     });
   });
 
+  it('rejects an unsupported calendar event type', async () => {
+    const { service } = buildService();
+    const result = await service.composeCalendarEvent(
+      { ...baseInput, eventType: 'UNKNOWN' },
+      WORKSPACE_ID,
+    );
+
+    expect(result).toEqual({
+      success: false,
+      error: "Unsupported calendar event type 'UNKNOWN'",
+    });
+  });
+
   it('rejects an owner from another workspace', async () => {
-    const result = await buildService(null).composeCalendarEvent(
+    const { executeInWorkspaceContext, service } = buildService(null);
+    const result = await service.composeCalendarEvent(
       { ...baseInput, ownerId: OWNER_ID },
       WORKSPACE_ID,
     );
@@ -113,5 +156,6 @@ describe('CalendarEventComposerService', () => {
       success: false,
       error: 'ownerId does not belong to this workspace',
     });
+    expect(executeInWorkspaceContext).toHaveBeenCalledTimes(1);
   });
 });

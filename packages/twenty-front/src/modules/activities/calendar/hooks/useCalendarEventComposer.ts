@@ -125,6 +125,16 @@ export const useCalendarEventComposer = ({
     ({ nameSingular }) =>
       nameSingular === initialValues?.contextRecord.objectNameSingular,
   );
+  const composerContextRecord = initialValues?.contextRecord;
+
+  const timelineContext = isNonEmptyString(
+    composerContextRecord?.recordId ?? '',
+  )
+    ? {
+        objectNameSingular: composerContextRecord?.objectNameSingular ?? '',
+        recordId: composerContextRecord?.recordId ?? '',
+      }
+    : null;
 
   const { record: contextRecord, loading: isContextRecordLoading } =
     useFindOneRecord({
@@ -294,8 +304,8 @@ export const useCalendarEventComposer = ({
 
       // The event already exists at this point, so a failure to link the
       // related records must not keep the composer open: retrying would create
-      // a second event. A missing id means persistence failed, and the next
-      // provider sync then recreates the event without these links.
+      // a second event. The creation hook treats an absent local id as a
+      // persistence failure, so this branch only handles relation-linking failures.
       if (targets.length > 0) {
         let areTargetsLinked = false;
 
@@ -309,9 +319,11 @@ export const useCalendarEventComposer = ({
         }
 
         if (areTargetsLinked) {
-          // createCalendarEvent already refetched, but that ran before these
-          // links existed, so an event related only through them stays invisible.
-          await refetchTimelineCalendarEvents();
+          // The global calendar has its own date-range refetch. Only refresh a
+          // timeline query when this composer was opened from a real record.
+          if (isDefined(timelineContext)) {
+            await refetchTimelineCalendarEvents(timelineContext);
+          }
         } else {
           enqueueErrorSnackBar({
             message: t`Failed to link the related records to this event`,
@@ -351,6 +363,7 @@ export const useCalendarEventComposer = ({
     targets,
     timeZone,
     title,
+    timelineContext,
   ]);
 
   return {

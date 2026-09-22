@@ -29,6 +29,24 @@ describe('CalendarEvent standard metadata build', () => {
     ).toBeDefined();
   });
 
+  it('uses the calendar event relation as the task junction target', () => {
+    const taskCalendarEventTargetsField =
+      allFlatEntityMaps.flatFieldMetadataMaps.byUniversalIdentifier[
+        STANDARD_OBJECTS.task.fields.calendarEventTargets.universalIdentifier
+      ];
+
+    expect(taskCalendarEventTargetsField).toMatchObject({
+      relationTargetFieldMetadataUniversalIdentifier:
+        STANDARD_OBJECTS.calendarEventTarget.fields.targetTask
+          .universalIdentifier,
+      universalSettings: {
+        junctionTargetFieldUniversalIdentifier:
+          STANDARD_OBJECTS.calendarEventTarget.fields.calendarEvent
+            .universalIdentifier,
+      },
+    });
+  });
+
   it('uses the important calendar event detail fields on the record page', () => {
     const recordPageViewFields = Object.values(
       allFlatEntityMaps.flatViewFieldMaps.byUniversalIdentifier,

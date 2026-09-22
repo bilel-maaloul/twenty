@@ -9,8 +9,8 @@ export class CreateCalendarEventOutputDTO {
   @Field(() => String, { nullable: true })
   iCalUid?: string;
 
-  // Absent when the event reached the provider but persistence failed; the next
-  // sync then recovers the record, so callers must handle it being unset.
+  // A successful response always includes the local Twenty record id. It is
+  // nullable only because failed mutations return an error response.
   @Field(() => String, { nullable: true })
   calendarEventId?: string;
 
