@@ -40,6 +40,7 @@ const renderCalendarMonthGrid = ({
   onCalendarEventClick = jest.fn(),
   onCurrentMonth = jest.fn(),
   onDayClick = jest.fn(),
+  onDateChange = jest.fn(),
   onNextMonth = jest.fn(),
   onPreviousMonth = jest.fn(),
 }: Partial<{
@@ -47,6 +48,7 @@ const renderCalendarMonthGrid = ({
   onCalendarEventClick: (calendarEventId: string) => void;
   onCurrentMonth: () => void;
   onDayClick: (day: Temporal.PlainDate) => void;
+  onDateChange: (date: Temporal.PlainDate) => void;
   onNextMonth: () => void;
   onPreviousMonth: () => void;
 }> = {}) => {
@@ -62,6 +64,7 @@ const renderCalendarMonthGrid = ({
         onCalendarEventClick={onCalendarEventClick}
         onCurrentMonth={onCurrentMonth}
         onDayClick={onDayClick}
+        onDateChange={onDateChange}
         onNextMonth={onNextMonth}
         onPreviousMonth={onPreviousMonth}
       />
@@ -72,6 +75,7 @@ const renderCalendarMonthGrid = ({
     onCalendarEventClick,
     onCurrentMonth,
     onDayClick,
+    onDateChange,
     onNextMonth,
     onPreviousMonth,
   };
@@ -112,6 +116,138 @@ describe('CalendarMonthGrid', () => {
     expect(onPreviousMonth).toHaveBeenCalledTimes(1);
     expect(onCurrentMonth).toHaveBeenCalledTimes(1);
     expect(onNextMonth).toHaveBeenCalledTimes(1);
+  });
+
+  it('selects a year, month, and day from the staged date picker', async () => {
+    const user = userEvent.setup();
+    const { onDateChange } = renderCalendarMonthGrid();
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Choose a date, currently July 2026',
+      }),
+    );
+
+    expect(
+      screen.getByRole('dialog', { name: 'Choose calendar date' }),
+    ).toBeVisible();
+    expect(screen.getByText('Choose a year')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: '2020' }));
+
+    expect(screen.getByText('Choose a month')).toBeVisible();
+    expect(onDateChange).toHaveBeenLastCalledWith(
+      Temporal.PlainDate.from('2020-07-15'),
+    );
+
+    const marchDate = Temporal.PlainDate.from('2020-03-01');
+    const marchLabel = marchDate.toLocaleString(undefined, { month: 'long' });
+
+    await user.click(screen.getByRole('button', { name: marchLabel }));
+
+    expect(screen.getByText('Choose a day')).toBeVisible();
+    expect(onDateChange).toHaveBeenLastCalledWith(
+      Temporal.PlainDate.from('2020-03-15'),
+    );
+
+    const selectedDayLabel = Temporal.PlainDate.from(
+      '2020-03-20',
+    ).toLocaleString(undefined, {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
+
+    await user.click(screen.getByRole('button', { name: selectedDayLabel }));
+
+    expect(onDateChange).toHaveBeenLastCalledWith(
+      Temporal.PlainDate.from('2020-03-20'),
+    );
+    expect(
+      screen.queryByRole('dialog', { name: 'Choose calendar date' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('supports going back to an earlier picker step and dismissing with Escape', async () => {
+    const user = userEvent.setup();
+    renderCalendarMonthGrid();
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Choose a date, currently July 2026',
+      }),
+    );
+    await user.click(screen.getByRole('button', { name: '2020' }));
+
+    await user.click(
+      screen.getByRole('button', { name: 'Back to year selection' }),
+    );
+
+    expect(screen.getByText('Choose a year')).toBeVisible();
+
+    await user.keyboard('{Escape}');
+
+    expect(
+      screen.queryByRole('dialog', { name: 'Choose calendar date' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('closes the picker when clicking outside it', async () => {
+    const user = userEvent.setup();
+    renderCalendarMonthGrid();
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Choose a date, currently July 2026',
+      }),
+    );
+
+    expect(
+      screen.getByRole('dialog', { name: 'Choose calendar date' }),
+    ).toBeVisible();
+
+    await user.click(document.body);
+
+    expect(
+      screen.queryByRole('dialog', { name: 'Choose calendar date' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('moves between days with arrow keys in the day step', async () => {
+    const user = userEvent.setup();
+    renderCalendarMonthGrid();
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Choose a date, currently July 2026',
+      }),
+    );
+    await user.click(screen.getByRole('button', { name: '2020' }));
+    const marchDate = Temporal.PlainDate.from('2020-03-01');
+    const marchLabel = marchDate.toLocaleString(undefined, { month: 'long' });
+
+    await user.click(screen.getByRole('button', { name: marchLabel }));
+
+    const selectedDay = screen.getByRole('button', {
+      name: Temporal.PlainDate.from('2020-03-15').toLocaleString(undefined, {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      }),
+    });
+    selectedDay.focus();
+
+    await user.keyboard('{ArrowRight}');
+
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', {
+        name: Temporal.PlainDate.from('2020-03-16').toLocaleString(undefined, {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        }),
+      }),
+    );
   });
 
   it('opens the composer when a date cell is clicked', async () => {

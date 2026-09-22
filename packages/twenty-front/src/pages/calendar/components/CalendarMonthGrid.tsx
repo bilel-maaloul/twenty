@@ -2,7 +2,13 @@ import { CalendarEventNotSharedContent } from '@/activities/calendar/components/
 import { useUserTimezone } from '@/ui/input/components/internal/date/hooks/useUserTimezone';
 import { styled } from '@linaria/react';
 import { t } from '@lingui/core/macro';
-import { useMemo, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import { Temporal } from 'temporal-polyfill';
 import {
   isFieldValueRestricted,
@@ -46,8 +52,47 @@ type CalendarMonthGridProps = {
   onCalendarEventClick: (calendarEventId: string) => void;
   onCurrentMonth: () => void;
   onDayClick: (day: Temporal.PlainDate) => void;
+  onDateChange: (date: Temporal.PlainDate) => void;
   onNextMonth: () => void;
   onPreviousMonth: () => void;
+};
+
+type CalendarPickerStep = 'year' | 'month' | 'day';
+
+const CALENDAR_PICKER_YEAR_PAGE_SIZE = 12;
+
+const getDateWithSafeDay = ({
+  date,
+  day = date.day,
+  month = date.month,
+  year = date.year,
+}: {
+  date: Temporal.PlainDate;
+  day?: number;
+  month?: number;
+  year?: number;
+}) => {
+  const firstDayOfMonth = Temporal.PlainDate.from({ year, month, day: 1 });
+
+  return firstDayOfMonth.with({
+    day: Math.min(day, firstDayOfMonth.daysInMonth),
+  });
+};
+
+const getCalendarPickerDays = (
+  date: Temporal.PlainDate,
+  weekStartsOnDayOfWeek: number,
+) => {
+  const firstDayOfMonth = date.with({ day: 1 });
+  const daysBeforeFirstDay =
+    (firstDayOfMonth.dayOfWeek - weekStartsOnDayOfWeek + 7) % 7;
+  const firstCalendarDay = firstDayOfMonth.subtract({
+    days: daysBeforeFirstDay,
+  });
+
+  return Array.from({ length: 42 }, (_, index) =>
+    firstCalendarDay.add({ days: index }),
+  );
 };
 
 const MAX_VISIBLE_EVENTS_PER_DAY = 3;
@@ -59,37 +104,210 @@ const StyledContainer = styled.div`
   gap: ${themeCssVariables.spacing[3]};
   min-height: 0;
   overflow: auto;
-  padding: ${themeCssVariables.spacing[4]};
+  padding: 0 ${themeCssVariables.spacing[6]} ${themeCssVariables.spacing[6]};
 
   @media (max-width: ${MOBILE_VIEWPORT}px) {
-    padding: ${themeCssVariables.spacing[2]};
+    padding: 0 ${themeCssVariables.spacing[3]} ${themeCssVariables.spacing[3]};
   }
 `;
 
 const StyledToolbar = styled.div`
   align-items: center;
   display: flex;
-  flex-wrap: wrap;
-  gap: ${themeCssVariables.spacing[2]};
-  justify-content: space-between;
+  justify-content: center;
+  min-height: 32px;
+  position: relative;
+
+  @media (max-width: ${MOBILE_VIEWPORT}px) {
+    justify-content: space-between;
+  }
 `;
 
-const StyledMonthLabel = styled.h2`
+const StyledMonthNavigation = styled.div`
+  align-items: center;
+  display: flex;
+  gap: ${themeCssVariables.spacing[2]};
+`;
+
+const StyledMonthPickerButton = styled.button`
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: ${themeCssVariables.border.radius.sm};
   color: ${themeCssVariables.font.color.primary};
+  cursor: pointer;
+  display: flex;
+  font: inherit;
   font-size: ${themeCssVariables.font.size.lg};
   font-weight: ${themeCssVariables.font.weight.semiBold};
-  margin: 0;
+  justify-content: center;
+  padding: ${themeCssVariables.spacing[1]} ${themeCssVariables.spacing[2]};
+
+  &:hover {
+    background: ${themeCssVariables.background.transparent.light};
+  }
+
+  &:focus-visible {
+    outline: 2px solid ${themeCssVariables.color.blue};
+    outline-offset: 1px;
+  }
 `;
 
-const StyledNavigationControls = styled.div`
+const StyledMonthPickerContainer = styled.div`
+  position: relative;
+`;
+
+const StyledCurrentMonthButton = styled.div`
+  position: absolute;
+  right: 0;
+  top: 0;
+
+  @media (max-width: ${MOBILE_VIEWPORT}px) {
+    position: static;
+  }
+`;
+
+const StyledPicker = styled.div`
+  background: ${themeCssVariables.background.primary};
+  color: ${themeCssVariables.font.color.primary};
+  display: flex;
+  flex-direction: column;
+  gap: ${themeCssVariables.spacing[3]};
+  padding: ${themeCssVariables.spacing[3]};
+`;
+
+const StyledPickerPopover = styled.div`
+  background: ${themeCssVariables.background.primary};
+  border: 1px solid ${themeCssVariables.border.color.light};
+  border-radius: ${themeCssVariables.border.radius.sm};
+  box-shadow: ${themeCssVariables.boxShadow.strong};
+  left: 50%;
+  position: absolute;
+  top: calc(100% + ${themeCssVariables.spacing[2]});
+  transform: translateX(-50%);
+  width: 320px;
+  max-width: calc(100vw - ${themeCssVariables.spacing[6]});
+  z-index: 1;
+`;
+
+const StyledPickerSelection = styled.div`
+  border-bottom: 1px solid ${themeCssVariables.border.color.light};
+  display: flex;
+  flex-direction: column;
+  gap: ${themeCssVariables.spacing[1]};
+  padding-bottom: ${themeCssVariables.spacing[3]};
+`;
+
+const StyledPickerSelectionLabel = styled.span`
+  color: ${themeCssVariables.font.color.tertiary};
+  font-size: ${themeCssVariables.font.size.xs};
+`;
+
+const StyledPickerSelectionValue = styled.span`
+  color: ${themeCssVariables.font.color.primary};
+  font-size: ${themeCssVariables.font.size.md};
+  font-weight: ${themeCssVariables.font.weight.semiBold};
+`;
+
+const StyledPickerStepHeader = styled.div`
+  align-items: center;
+  display: flex;
+  gap: ${themeCssVariables.spacing[2]};
+  justify-content: space-between;
+  min-height: 32px;
+`;
+
+const StyledPickerStepTitle = styled.span`
+  color: ${themeCssVariables.font.color.primary};
+  font-size: ${themeCssVariables.font.size.sm};
+  font-weight: ${themeCssVariables.font.weight.semiBold};
+`;
+
+const StyledPickerBackButton = styled.button`
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: ${themeCssVariables.border.radius.sm};
+  color: ${themeCssVariables.font.color.secondary};
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-size: ${themeCssVariables.font.size.xs};
+  gap: ${themeCssVariables.spacing[1]};
+  padding: ${themeCssVariables.spacing[1]};
+
+  &:hover {
+    background: ${themeCssVariables.background.transparent.light};
+    color: ${themeCssVariables.font.color.primary};
+  }
+
+  &:focus-visible {
+    outline: 2px solid ${themeCssVariables.color.blue};
+    outline-offset: 1px;
+  }
+`;
+
+const StyledPickerNavigation = styled.div`
   align-items: center;
   display: flex;
   gap: ${themeCssVariables.spacing[1]};
 `;
 
+const StyledPickerGrid = styled.div<{ columns: number }>`
+  display: grid;
+  gap: ${themeCssVariables.spacing[1]};
+  grid-template-columns: repeat(${({ columns }) => columns}, minmax(0, 1fr));
+`;
+
+const StyledPickerOption = styled.button<{ isSelected: boolean }>`
+  background: ${({ isSelected }) =>
+    isSelected ? themeCssVariables.color.blue : 'transparent'};
+  border: 1px solid
+    ${({ isSelected }) =>
+      isSelected
+        ? themeCssVariables.color.blue
+        : themeCssVariables.border.color.light};
+  border-radius: ${themeCssVariables.border.radius.sm};
+  color: ${({ isSelected }) =>
+    isSelected
+      ? themeCssVariables.font.color.inverted
+      : themeCssVariables.font.color.primary};
+  cursor: pointer;
+  font: inherit;
+  font-size: ${themeCssVariables.font.size.sm};
+  min-height: 32px;
+  padding: ${themeCssVariables.spacing[1]};
+
+  &:hover {
+    background: ${({ isSelected }) =>
+      isSelected
+        ? themeCssVariables.color.blue
+        : themeCssVariables.background.transparent.light};
+  }
+
+  &:focus-visible {
+    outline: 2px solid ${themeCssVariables.color.blue};
+    outline-offset: 1px;
+  }
+`;
+
+const StyledPickerWeekDay = styled.span`
+  color: ${themeCssVariables.font.color.tertiary};
+  font-size: ${themeCssVariables.font.size.xs};
+  font-weight: ${themeCssVariables.font.weight.medium};
+  padding: ${themeCssVariables.spacing[1]};
+  text-align: center;
+`;
+
+const StyledPickerDayPlaceholder = styled.span`
+  min-height: 32px;
+`;
+
 const StyledTableContainer = styled.div`
   border: 1px solid ${themeCssVariables.border.color.light};
   border-radius: ${themeCssVariables.border.radius.sm};
+  display: flex;
+  flex: 1;
   min-height: 0;
   overflow: auto;
 `;
@@ -97,6 +315,7 @@ const StyledTableContainer = styled.div`
 const StyledTable = styled.table`
   border-collapse: separate;
   border-spacing: 0;
+  height: 100%;
   min-width: 840px;
   table-layout: fixed;
   width: 100%;
@@ -108,7 +327,7 @@ const StyledWeekDay = styled.th`
   font-size: ${themeCssVariables.font.size.sm};
   font-weight: ${themeCssVariables.font.weight.medium};
   padding: ${themeCssVariables.spacing[2]};
-  text-align: right;
+  text-align: left;
 `;
 
 const StyledDayCell = styled.td<{ isOtherMonth: boolean }>`
@@ -117,7 +336,7 @@ const StyledDayCell = styled.td<{ isOtherMonth: boolean }>`
       ? themeCssVariables.background.secondary
       : themeCssVariables.background.primary};
   box-sizing: border-box;
-  height: 132px;
+  height: 1px;
   min-width: 0;
   padding: ${themeCssVariables.spacing[1]};
   vertical-align: top;
@@ -174,13 +393,14 @@ const StyledEvents = styled.div`
 `;
 
 const StyledEventButton = styled.button`
-  align-items: baseline;
+  align-items: flex-start;
   background: ${themeCssVariables.background.transparent.lighter};
   border: 1px solid ${themeCssVariables.border.color.light};
   border-radius: ${themeCssVariables.border.radius.sm};
   color: ${themeCssVariables.font.color.primary};
   cursor: pointer;
   display: flex;
+  flex-direction: column;
   font-family: inherit;
   font-size: ${themeCssVariables.font.size.xs};
   gap: ${themeCssVariables.spacing['0.5']};
@@ -197,6 +417,14 @@ const StyledEventButton = styled.button`
     outline: 2px solid ${themeCssVariables.color.blue};
     outline-offset: 1px;
   }
+`;
+
+const StyledEventDetails = styled.span`
+  align-items: center;
+  display: flex;
+  gap: ${themeCssVariables.spacing['0.5']};
+  min-width: 0;
+  width: 100%;
 `;
 
 const StyledEventTime = styled.span`
@@ -227,6 +455,7 @@ const StyledEventTitle = styled.span<{ isCanceled: boolean }>`
     isCanceled ? 'line-through' : 'none'};
   text-overflow: ellipsis;
   white-space: nowrap;
+  width: 100%;
 `;
 
 const StyledMoreEvents = styled.button`
@@ -282,12 +511,121 @@ export const CalendarMonthGrid = ({
   onCalendarEventClick,
   onCurrentMonth,
   onDayClick,
+  onDateChange,
   onNextMonth,
   onPreviousMonth,
 }: CalendarMonthGridProps) => {
   const { userTimezone: currentUserTimezone } = useUserTimezone();
   const today = Temporal.Now.plainDateISO(currentUserTimezone);
   const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
+  const [pickerDate, setPickerDate] = useState(selectedDate);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [pickerStep, setPickerStep] = useState<CalendarPickerStep>('year');
+  const [yearPageStart, setYearPageStart] = useState(
+    Math.floor(selectedDate.year / CALENDAR_PICKER_YEAR_PAGE_SIZE) *
+      CALENDAR_PICKER_YEAR_PAGE_SIZE,
+  );
+  const pickerDayButtonRefs = useRef<Record<string, HTMLButtonElement | null>>(
+    {},
+  );
+  const pickerContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isPickerOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+
+      if (
+        target instanceof Node &&
+        !pickerContainerRef.current?.contains(target)
+      ) {
+        setIsPickerOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsPickerOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isPickerOpen]);
+
+  const weekStartsOnDayOfWeek = days[0]?.[0]?.dayOfWeek ?? 1;
+  const pickerDays = useMemo(
+    () => getCalendarPickerDays(pickerDate, weekStartsOnDayOfWeek),
+    [pickerDate, weekStartsOnDayOfWeek],
+  );
+
+  const pickerYears = Array.from(
+    { length: CALENDAR_PICKER_YEAR_PAGE_SIZE },
+    (_, index) => yearPageStart + index,
+  );
+
+  const pickerMonthLabels = Array.from({ length: 12 }, (_, index) =>
+    Temporal.PlainDate.from({
+      year: pickerDate.year,
+      month: index + 1,
+      day: 1,
+    }).toLocaleString(undefined, { month: 'long' }),
+  );
+
+  const handlePickerYearSelect = (year: number) => {
+    const nextDate = getDateWithSafeDay({ date: pickerDate, year });
+
+    setPickerDate(nextDate);
+    onDateChange(nextDate);
+    setPickerStep('month');
+  };
+
+  const handlePickerMonthSelect = (month: number) => {
+    const nextDate = getDateWithSafeDay({ date: pickerDate, month });
+
+    setPickerDate(nextDate);
+    onDateChange(nextDate);
+    setPickerStep('day');
+  };
+
+  const handlePickerDaySelect = (day: Temporal.PlainDate) => {
+    setPickerDate(day);
+    onDateChange(day);
+    setIsPickerOpen(false);
+  };
+
+  const handlePickerDayKeyDown = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    day: Temporal.PlainDate,
+  ) => {
+    const keyToDayOffset: Record<string, number> = {
+      ArrowDown: 7,
+      ArrowLeft: -1,
+      ArrowRight: 1,
+      ArrowUp: -7,
+    };
+    const dayOffset = keyToDayOffset[event.key];
+
+    if (dayOffset === undefined) {
+      return;
+    }
+
+    const nextDay = day.add({ days: dayOffset });
+    const nextDayButton = pickerDayButtonRefs.current[nextDay.toString()];
+
+    if (nextDayButton) {
+      event.preventDefault();
+      nextDayButton.focus();
+    }
+  };
 
   const calendarEventsByDate = useMemo(() => {
     const eventsByDate = new Map<string, CalendarPageCalendarEvent[]>();
@@ -316,8 +654,7 @@ export const CalendarMonthGrid = ({
   return (
     <StyledContainer>
       <StyledToolbar>
-        <StyledMonthLabel aria-live="polite">{monthLabel}</StyledMonthLabel>
-        <StyledNavigationControls>
+        <StyledMonthNavigation>
           <Button
             ariaLabel={t`Previous month`}
             size="small"
@@ -325,12 +662,200 @@ export const CalendarMonthGrid = ({
             Icon={IconChevronLeft}
             onClick={onPreviousMonth}
           />
-          <Button
-            size="small"
-            title={t`Today`}
-            variant="tertiary"
-            onClick={onCurrentMonth}
-          />
+          <StyledMonthPickerContainer ref={pickerContainerRef}>
+            <StyledMonthPickerButton
+              aria-expanded={isPickerOpen}
+              aria-haspopup="dialog"
+              aria-label={t`Choose a date, currently ${monthLabel}`}
+              type="button"
+              onClick={() => {
+                setPickerDate(selectedDate);
+                setPickerStep('year');
+                setYearPageStart(
+                  Math.floor(
+                    selectedDate.year / CALENDAR_PICKER_YEAR_PAGE_SIZE,
+                  ) * CALENDAR_PICKER_YEAR_PAGE_SIZE,
+                );
+                setIsPickerOpen((currentIsPickerOpen) => !currentIsPickerOpen);
+              }}
+            >
+              <span aria-live="polite">{monthLabel}</span>
+            </StyledMonthPickerButton>
+            {isPickerOpen && (
+              <StyledPickerPopover>
+                <StyledPicker
+                  aria-label={t`Choose calendar date`}
+                  role="dialog"
+                >
+                  <StyledPickerSelection>
+                    <StyledPickerSelectionLabel>
+                      {t`Selected date`}
+                    </StyledPickerSelectionLabel>
+                    <StyledPickerSelectionValue>
+                      {pickerDate.toLocaleString(undefined, {
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric',
+                      })}
+                    </StyledPickerSelectionValue>
+                  </StyledPickerSelection>
+                  {pickerStep === 'year' && (
+                    <>
+                      <StyledPickerStepHeader>
+                        <StyledPickerStepTitle>
+                          {t`Choose a year`}
+                        </StyledPickerStepTitle>
+                        <StyledPickerNavigation>
+                          <Button
+                            ariaLabel={t`Previous years`}
+                            Icon={IconChevronLeft}
+                            size="small"
+                            variant="tertiary"
+                            onClick={() =>
+                              setYearPageStart(
+                                (currentYearPageStart) =>
+                                  currentYearPageStart -
+                                  CALENDAR_PICKER_YEAR_PAGE_SIZE,
+                              )
+                            }
+                          />
+                          <Button
+                            ariaLabel={t`Next years`}
+                            Icon={IconChevronRight}
+                            size="small"
+                            variant="tertiary"
+                            onClick={() =>
+                              setYearPageStart(
+                                (currentYearPageStart) =>
+                                  currentYearPageStart +
+                                  CALENDAR_PICKER_YEAR_PAGE_SIZE,
+                              )
+                            }
+                          />
+                        </StyledPickerNavigation>
+                      </StyledPickerStepHeader>
+                      <StyledPickerGrid columns={3}>
+                        {pickerYears.map((year) => (
+                          <StyledPickerOption
+                            key={year}
+                            isSelected={year === pickerDate.year}
+                            type="button"
+                            aria-pressed={year === pickerDate.year}
+                            onClick={() => handlePickerYearSelect(year)}
+                          >
+                            {year}
+                          </StyledPickerOption>
+                        ))}
+                      </StyledPickerGrid>
+                    </>
+                  )}
+                  {pickerStep === 'month' && (
+                    <>
+                      <StyledPickerStepHeader>
+                        <StyledPickerBackButton
+                          aria-label={t`Back to year selection`}
+                          type="button"
+                          onClick={() => setPickerStep('year')}
+                        >
+                          <IconChevronLeft size={14} />
+                          {pickerDate.year}
+                        </StyledPickerBackButton>
+                        <StyledPickerStepTitle>
+                          {t`Choose a month`}
+                        </StyledPickerStepTitle>
+                        <span />
+                      </StyledPickerStepHeader>
+                      <StyledPickerGrid columns={3}>
+                        {pickerMonthLabels.map((monthName, index) => {
+                          const month = index + 1;
+
+                          return (
+                            <StyledPickerOption
+                              key={month}
+                              isSelected={month === pickerDate.month}
+                              type="button"
+                              aria-pressed={month === pickerDate.month}
+                              onClick={() => handlePickerMonthSelect(month)}
+                            >
+                              {monthName}
+                            </StyledPickerOption>
+                          );
+                        })}
+                      </StyledPickerGrid>
+                    </>
+                  )}
+                  {pickerStep === 'day' && (
+                    <>
+                      <StyledPickerStepHeader>
+                        <StyledPickerBackButton
+                          aria-label={t`Back to month selection`}
+                          type="button"
+                          onClick={() => setPickerStep('month')}
+                        >
+                          <IconChevronLeft size={14} />
+                          {pickerDate.toLocaleString(undefined, {
+                            month: 'long',
+                          })}
+                        </StyledPickerBackButton>
+                        <StyledPickerStepTitle>
+                          {t`Choose a day`}
+                        </StyledPickerStepTitle>
+                        <span />
+                      </StyledPickerStepHeader>
+                      <StyledPickerGrid columns={7}>
+                        {weekDayLabels.map((weekDayLabel) => (
+                          <StyledPickerWeekDay key={weekDayLabel}>
+                            {weekDayLabel}
+                          </StyledPickerWeekDay>
+                        ))}
+                        {pickerDays.map((day) => {
+                          const isPickerDayInMonth = isPlainDateInSameMonth(
+                            day,
+                            pickerDate,
+                          );
+
+                          if (!isPickerDayInMonth) {
+                            return (
+                              <StyledPickerDayPlaceholder
+                                key={day.toString()}
+                                aria-hidden="true"
+                              />
+                            );
+                          }
+
+                          const isSelected = day.equals(pickerDate);
+
+                          return (
+                            <StyledPickerOption
+                              key={day.toString()}
+                              ref={(element) => {
+                                pickerDayButtonRefs.current[day.toString()] =
+                                  element;
+                              }}
+                              aria-label={day.toLocaleString(undefined, {
+                                day: 'numeric',
+                                month: 'long',
+                                year: 'numeric',
+                              })}
+                              aria-pressed={isSelected}
+                              isSelected={isSelected}
+                              type="button"
+                              onClick={() => handlePickerDaySelect(day)}
+                              onKeyDown={(event) =>
+                                handlePickerDayKeyDown(event, day)
+                              }
+                            >
+                              {day.day}
+                            </StyledPickerOption>
+                          );
+                        })}
+                      </StyledPickerGrid>
+                    </>
+                  )}
+                </StyledPicker>
+              </StyledPickerPopover>
+            )}
+          </StyledMonthPickerContainer>
           <Button
             ariaLabel={t`Next month`}
             size="small"
@@ -338,7 +863,15 @@ export const CalendarMonthGrid = ({
             Icon={IconChevronRight}
             onClick={onNextMonth}
           />
-        </StyledNavigationControls>
+        </StyledMonthNavigation>
+        <StyledCurrentMonthButton>
+          <Button
+            size="small"
+            title={t`Today`}
+            variant="tertiary"
+            onClick={onCurrentMonth}
+          />
+        </StyledCurrentMonthButton>
       </StyledToolbar>
       <StyledTableContainer>
         <StyledTable>
@@ -425,42 +958,44 @@ export const CalendarMonthGrid = ({
                                   onCalendarEventClick(calendarEvent.id);
                                 }}
                               >
-                                {calendarEvent.eventType && (
-                                  <StyledEventType>
-                                    {calendarEvent.eventType.toLowerCase()}
-                                  </StyledEventType>
-                                )}
-                                <StyledEventTime>
-                                  {eventTimeLabel}
-                                </StyledEventTime>
                                 <StyledEventTitle
                                   isCanceled={calendarEvent.isCanceled}
                                 >
                                   {eventTitle}
                                 </StyledEventTitle>
-                                {calendarEvent.calendarEventParticipants &&
-                                  calendarEvent.calendarEventParticipants
-                                    .length > 0 && (
-                                    <StyledEventParticipantCount
-                                      aria-label={t`${calendarEvent.calendarEventParticipants.length} participants`}
-                                    >
-                                      ·
-                                      {
-                                        calendarEvent.calendarEventParticipants
-                                          .length
-                                      }
-                                    </StyledEventParticipantCount>
+                                <StyledEventDetails>
+                                  {calendarEvent.eventType && (
+                                    <StyledEventType>
+                                      {calendarEvent.eventType.toLowerCase()}
+                                    </StyledEventType>
                                   )}
-                                {calendarEvent.calendarEventTargets &&
-                                  calendarEvent.calendarEventTargets.length >
-                                    0 && (
-                                    <StyledRelatedMarker
-                                      aria-label={t`Related CRM records`}
-                                      title={t`Related CRM records`}
-                                    >
-                                      •
-                                    </StyledRelatedMarker>
-                                  )}
+                                  <StyledEventTime>
+                                    {eventTimeLabel}
+                                  </StyledEventTime>
+                                  {calendarEvent.calendarEventParticipants &&
+                                    calendarEvent.calendarEventParticipants
+                                      .length > 0 && (
+                                      <StyledEventParticipantCount
+                                        aria-label={t`${calendarEvent.calendarEventParticipants.length} participants`}
+                                      >
+                                        ·
+                                        {
+                                          calendarEvent
+                                            .calendarEventParticipants.length
+                                        }
+                                      </StyledEventParticipantCount>
+                                    )}
+                                  {calendarEvent.calendarEventTargets &&
+                                    calendarEvent.calendarEventTargets.length >
+                                      0 && (
+                                      <StyledRelatedMarker
+                                        aria-label={t`Related CRM records`}
+                                        title={t`Related CRM records`}
+                                      >
+                                        •
+                                      </StyledRelatedMarker>
+                                    )}
+                                </StyledEventDetails>
                               </StyledEventButton>
                             );
                           })}

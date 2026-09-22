@@ -194,6 +194,7 @@ describe('CalendarPage', () => {
         objectNameSingular: CoreObjectNameSingular.CalendarEvent,
       }),
     );
+    expect(screen.getByRole('heading', { name: 'Calendar' })).toBeVisible();
     expect(screen.getByTestId('calendar-month-grid')).toBeInTheDocument();
     expect(
       screen.getByText('No events are scheduled for this month.'),

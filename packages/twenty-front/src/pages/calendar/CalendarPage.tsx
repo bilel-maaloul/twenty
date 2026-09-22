@@ -9,7 +9,6 @@ import { isCalendarCreationEnabledForAccount } from '@/activities/calendar/utils
 import { useMyConnectedAccounts } from '@/settings/accounts/hooks/useMyConnectedAccounts';
 import { useOpenCalendarEventInSidePanel } from '@/side-panel/hooks/useOpenCalendarEventInSidePanel';
 import { useOpenComposeCalendarEventInSidePanel } from '@/side-panel/hooks/useOpenComposeCalendarEventInSidePanel';
-import { PageCardHeader } from '@/ui/layout/page/components/PageCardHeader';
 import { PageCardLayout } from '@/ui/layout/page/components/PageCardLayout';
 import { useUserTimezone } from '@/ui/input/components/internal/date/hooks/useUserTimezone';
 import { PageTitle } from '@/ui/utilities/page-title/components/PageTitle';
@@ -22,9 +21,9 @@ import {
   type RecordGqlOperationFilter,
 } from 'twenty-shared/types';
 import { turnPlainDateIntoUserTimeZoneInstantString } from 'twenty-shared/utils';
-import { IconCalendarEvent, IconPlus, IconRefresh } from 'twenty-ui/icon';
+import { IconPlus, IconRefresh } from 'twenty-ui/icon';
 import { Button } from 'twenty-ui/input';
-import { themeCssVariables } from 'twenty-ui/theme-constants';
+import { MOBILE_VIEWPORT, themeCssVariables } from 'twenty-ui/theme-constants';
 import { Select } from '@/ui/input/components/Select';
 import {
   PermissionFlagType,
@@ -61,6 +60,29 @@ const StyledContent = styled.div`
   overflow: hidden;
 `;
 
+const StyledCalendarHeader = styled.div`
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding: ${themeCssVariables.spacing[5]} ${themeCssVariables.spacing[6]}
+    ${themeCssVariables.spacing[3]};
+
+  @media (max-width: ${MOBILE_VIEWPORT}px) {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: ${themeCssVariables.spacing[3]};
+    padding: ${themeCssVariables.spacing[4]} ${themeCssVariables.spacing[3]}
+      ${themeCssVariables.spacing[2]};
+  }
+`;
+
+const StyledCalendarTitle = styled.h1`
+  color: ${themeCssVariables.font.color.primary};
+  font-size: ${themeCssVariables.font.size.xl};
+  font-weight: ${themeCssVariables.font.weight.semiBold};
+  margin: 0;
+`;
+
 const StyledEmptyNotice = styled.div`
   align-items: center;
   border-top: 1px solid ${themeCssVariables.border.color.light};
@@ -78,7 +100,17 @@ const StyledFilters = styled.div`
   flex-wrap: wrap;
   gap: ${themeCssVariables.spacing[2]};
   justify-content: flex-end;
-  padding: ${themeCssVariables.spacing[3]} ${themeCssVariables.spacing[4]} 0;
+  padding: 0 ${themeCssVariables.spacing[6]} ${themeCssVariables.spacing[3]};
+
+  @media (max-width: ${MOBILE_VIEWPORT}px) {
+    justify-content: flex-start;
+    padding: 0 ${themeCssVariables.spacing[3]} ${themeCssVariables.spacing[2]};
+  }
+`;
+
+const StyledFilterControl = styled.div`
+  min-width: 160px;
+  width: 180px;
 `;
 
 type CalendarTargetObjectName =
@@ -264,26 +296,20 @@ export const CalendarPage = () => {
   return (
     <>
       <PageTitle title={t`Calendar`} />
-      <PageCardLayout
-        header={
-          <PageCardHeader
-            actionButton={
-              canCreateCalendarEvent ? (
-                <Button
-                  Icon={IconPlus}
-                  size="small"
-                  title={t`Create event`}
-                  variant="secondary"
-                  onClick={() => openCalendarEventComposer()}
-                />
-              ) : undefined
-            }
-            icon={<IconCalendarEvent />}
-            title={t`Calendar`}
-          />
-        }
-      >
+      <PageCardLayout header={null}>
         <StyledContent>
+          <StyledCalendarHeader>
+            <StyledCalendarTitle>{t`Calendar`}</StyledCalendarTitle>
+            {canCreateCalendarEvent && (
+              <Button
+                Icon={IconPlus}
+                size="small"
+                title={t`Create event`}
+                variant="secondary"
+                onClick={() => openCalendarEventComposer()}
+              />
+            )}
+          </StyledCalendarHeader>
           {loading ? (
             <SkeletonLoader withSubSections />
           ) : error ? (
@@ -298,56 +324,73 @@ export const CalendarPage = () => {
           ) : (
             <>
               <StyledFilters>
-                <Select
-                  dropdownId="calendar-event-type-filter"
-                  value={selectedEventType}
-                  options={[
-                    { label: t`All event types`, value: '' },
-                    { label: t`Meetings`, value: 'MEETING' },
-                    { label: t`Calls`, value: 'CALL' },
-                    { label: t`Tasks`, value: 'TASK' },
-                    { label: t`Appointments`, value: 'APPOINTMENT' },
-                    { label: t`Other`, value: 'OTHER' },
-                  ]}
-                  onChange={setSelectedEventType}
-                />
-                <FormSingleRecordPicker
-                  objectNameSingulars={[CoreObjectNameSingular.WorkspaceMember]}
-                  defaultValue={selectedOwnerId}
-                  onChange={(value) =>
-                    setSelectedOwnerId(typeof value === 'string' ? value : null)
-                  }
-                  testId="calendar-owner-filter"
-                />
-                <Select
-                  dropdownId="calendar-target-object-filter"
-                  value={selectedTargetObjectName}
-                  options={[
-                    { label: t`All related records`, value: '' },
-                    { label: t`Person`, value: CoreObjectNameSingular.Person },
-                    {
-                      label: t`Company`,
-                      value: CoreObjectNameSingular.Company,
-                    },
-                    {
-                      label: t`Opportunity`,
-                      value: CoreObjectNameSingular.Opportunity,
-                    },
-                    { label: t`Task`, value: CoreObjectNameSingular.Task },
-                  ]}
-                  onChange={handleTargetObjectNameChange}
-                />
-                {selectedTargetObjectName !== '' && (
+                <StyledFilterControl>
+                  <Select
+                    dropdownId="calendar-event-type-filter"
+                    fullWidth
+                    value={selectedEventType}
+                    options={[
+                      { label: t`All event types`, value: '' },
+                      { label: t`Meetings`, value: 'MEETING' },
+                      { label: t`Calls`, value: 'CALL' },
+                      { label: t`Tasks`, value: 'TASK' },
+                      { label: t`Appointments`, value: 'APPOINTMENT' },
+                      { label: t`Other`, value: 'OTHER' },
+                    ]}
+                    onChange={setSelectedEventType}
+                  />
+                </StyledFilterControl>
+                <StyledFilterControl>
                   <FormSingleRecordPicker
-                    objectNameSingulars={[selectedTargetObjectName]}
-                    defaultValue={selectedTargetRecordId}
+                    objectNameSingulars={[
+                      CoreObjectNameSingular.WorkspaceMember,
+                    ]}
+                    defaultValue={selectedOwnerId}
                     onChange={(value) =>
-                      setSelectedTargetRecordId(
+                      setSelectedOwnerId(
                         typeof value === 'string' ? value : null,
                       )
                     }
-                    testId="calendar-target-record-filter"
+                    testId="calendar-owner-filter"
                   />
+                </StyledFilterControl>
+                <StyledFilterControl>
+                  <Select
+                    dropdownId="calendar-target-object-filter"
+                    fullWidth
+                    value={selectedTargetObjectName}
+                    options={[
+                      { label: t`All related records`, value: '' },
+                      {
+                        label: t`Person`,
+                        value: CoreObjectNameSingular.Person,
+                      },
+                      {
+                        label: t`Company`,
+                        value: CoreObjectNameSingular.Company,
+                      },
+                      {
+                        label: t`Opportunity`,
+                        value: CoreObjectNameSingular.Opportunity,
+                      },
+                      { label: t`Task`, value: CoreObjectNameSingular.Task },
+                    ]}
+                    onChange={handleTargetObjectNameChange}
+                  />
+                </StyledFilterControl>
+                {selectedTargetObjectName !== '' && (
+                  <StyledFilterControl>
+                    <FormSingleRecordPicker
+                      objectNameSingulars={[selectedTargetObjectName]}
+                      defaultValue={selectedTargetRecordId}
+                      onChange={(value) =>
+                        setSelectedTargetRecordId(
+                          typeof value === 'string' ? value : null,
+                        )
+                      }
+                      testId="calendar-target-record-filter"
+                    />
+                  </StyledFilterControl>
                 )}
                 {hasActiveFilter && (
                   <Button
@@ -373,6 +416,7 @@ export const CalendarPage = () => {
                 onCalendarEventClick={openCalendarEventInSidePanel}
                 onCurrentMonth={handleCurrentMonth}
                 onDayClick={openCalendarEventComposer}
+                onDateChange={(date) => setSelectedDate(date)}
                 onNextMonth={handleNextMonth}
                 onPreviousMonth={handlePreviousMonth}
               />
