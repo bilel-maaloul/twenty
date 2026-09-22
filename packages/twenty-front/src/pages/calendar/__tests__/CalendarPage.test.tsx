@@ -17,6 +17,13 @@ jest.mock('@/object-record/hooks/useFindManyRecords', () => ({
   useFindManyRecords: jest.fn(),
 }));
 
+jest.mock(
+  '@/object-record/record-field/ui/form-types/components/FormSingleRecordPicker',
+  () => ({
+    FormSingleRecordPicker: () => null,
+  }),
+);
+
 jest.mock('@/settings/roles/hooks/useHasPermissionFlag', () => ({
   useHasPermissionFlag: () => true,
 }));

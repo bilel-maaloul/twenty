@@ -66,6 +66,14 @@ export class CreateCalendarEventService {
           data.calendarChannel,
           data.connectedAccount,
           workspaceId,
+          {
+            eventType: data.input.eventType,
+            ownerId: data.input.ownerId,
+            reminderMinutesBefore: data.input.reminderMinutesBefore,
+            recurrenceFrequency: data.input.recurrenceFrequency,
+            recurrenceEndDate: data.input.recurrenceEndDate,
+            recurrenceOccurrences: data.input.recurrenceOccurrences,
+          },
         );
 
       return calendarEventIds[0] ?? null;

@@ -1,5 +1,7 @@
 export type ComposeCalendarEventParams = {
   title: string;
+  eventType?: string;
+  ownerId?: string;
   description?: string;
   location?: string;
   startsAt: string;
@@ -9,5 +11,9 @@ export type ComposeCalendarEventParams = {
   attendees?: string;
   sendInvitations?: boolean;
   addConferencing?: boolean;
+  reminderMinutesBefore?: number;
+  recurrenceFrequency?: string;
+  recurrenceEndDate?: string;
+  recurrenceOccurrences?: number;
   connectedAccountId?: string;
 };

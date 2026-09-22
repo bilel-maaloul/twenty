@@ -1,6 +1,7 @@
 import { SkeletonLoader } from '@/activities/components/SkeletonLoader';
 import { useRecordCalendarDaysRange } from '@/object-record/record-calendar/hooks/useRecordCalendarDaysRange';
 import { useFindManyRecords } from '@/object-record/hooks/useFindManyRecords';
+import { FormSingleRecordPicker } from '@/object-record/record-field/ui/form-types/components/FormSingleRecordPicker';
 import { RecordIndexEmptyStateDisplay } from '@/object-record/record-index/components/RecordIndexEmptyStateDisplay';
 import { useHasPermissionFlag } from '@/settings/roles/hooks/useHasPermissionFlag';
 import { getMissingCreateCalendarEventScopes } from '@/accounts/utils/hasMissingCreateCalendarEventScopes';
@@ -24,6 +25,7 @@ import { turnPlainDateIntoUserTimeZoneInstantString } from 'twenty-shared/utils'
 import { IconCalendarEvent, IconPlus, IconRefresh } from 'twenty-ui/icon';
 import { Button } from 'twenty-ui/input';
 import { themeCssVariables } from 'twenty-ui/theme-constants';
+import { Select } from '@/ui/input/components/Select';
 import {
   PermissionFlagType,
   ViewCalendarLayout,
@@ -34,9 +36,19 @@ import {
 } from '~/pages/calendar/components/CalendarMonthGrid';
 
 const CALENDAR_EVENT_RECORD_GQL_FIELDS = {
+  calendarEventTargets: {
+    id: true,
+    targetCompany: { id: true },
+    targetOpportunity: { id: true },
+    targetPerson: { id: true },
+    targetTask: { id: true },
+  },
+  calendarEventParticipants: { id: true, displayName: true, handle: true },
+  eventType: true,
   id: true,
   isCanceled: true,
   isFullDay: true,
+  owner: { id: true },
   startsAt: true,
   title: true,
 } as const;
@@ -61,6 +73,20 @@ const StyledEmptyNotice = styled.div`
   text-align: center;
 `;
 
+const StyledFilters = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: ${themeCssVariables.spacing[2]};
+  justify-content: flex-end;
+  padding: ${themeCssVariables.spacing[3]} ${themeCssVariables.spacing[4]} 0;
+`;
+
+type CalendarTargetObjectName =
+  | CoreObjectNameSingular.Company
+  | CoreObjectNameSingular.Opportunity
+  | CoreObjectNameSingular.Person
+  | CoreObjectNameSingular.Task;
+
 export const CalendarPage = () => {
   const { t } = useLingui();
   const { userTimezone } = useUserTimezone();
@@ -71,6 +97,14 @@ export const CalendarPage = () => {
   const [selectedDate, setSelectedDate] = useState(() =>
     Temporal.Now.plainDateISO(userTimezone),
   );
+  const [selectedEventType, setSelectedEventType] = useState('');
+  const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(null);
+  const [selectedTargetObjectName, setSelectedTargetObjectName] = useState<
+    CalendarTargetObjectName | ''
+  >('');
+  const [selectedTargetRecordId, setSelectedTargetRecordId] = useState<
+    string | null
+  >(null);
   const { firstDay, lastDay, days, weekDayLabels } = useRecordCalendarDaysRange(
     selectedDate,
     ViewCalendarLayout.MONTH,
@@ -124,6 +158,65 @@ export const CalendarPage = () => {
       limit: 100,
       recordGqlFields: CALENDAR_EVENT_RECORD_GQL_FIELDS,
     });
+
+  const visibleRecords = useMemo(
+    () =>
+      selectedEventType === ''
+        ? records
+        : records.filter(
+            (calendarEvent) => calendarEvent.eventType === selectedEventType,
+          ),
+    [records, selectedEventType],
+  );
+
+  const recordsMatchingFilters = useMemo(
+    () =>
+      visibleRecords.filter((calendarEvent) => {
+        if (
+          selectedOwnerId !== null &&
+          calendarEvent.owner?.id !== selectedOwnerId
+        ) {
+          return false;
+        }
+
+        if (
+          selectedTargetObjectName === '' ||
+          selectedTargetRecordId === null
+        ) {
+          return true;
+        }
+
+        return calendarEvent.calendarEventTargets?.some((target) => {
+          switch (selectedTargetObjectName) {
+            case CoreObjectNameSingular.Company:
+              return target.targetCompany?.id === selectedTargetRecordId;
+            case CoreObjectNameSingular.Opportunity:
+              return target.targetOpportunity?.id === selectedTargetRecordId;
+            case CoreObjectNameSingular.Person:
+              return target.targetPerson?.id === selectedTargetRecordId;
+            case CoreObjectNameSingular.Task:
+              return target.targetTask?.id === selectedTargetRecordId;
+          }
+        });
+      }),
+    [
+      selectedOwnerId,
+      selectedTargetObjectName,
+      selectedTargetRecordId,
+      visibleRecords,
+    ],
+  );
+
+  const hasActiveFilter =
+    selectedEventType !== '' ||
+    selectedOwnerId !== null ||
+    selectedTargetObjectName !== '' ||
+    selectedTargetRecordId !== null;
+
+  const handleTargetObjectNameChange = (value: string) => {
+    setSelectedTargetObjectName(value as CalendarTargetObjectName | '');
+    setSelectedTargetRecordId(null);
+  };
 
   const handleCalendarEventCreated = useCallback(() => {
     void refetch();
@@ -204,8 +297,74 @@ export const CalendarPage = () => {
             />
           ) : (
             <>
+              <StyledFilters>
+                <Select
+                  dropdownId="calendar-event-type-filter"
+                  value={selectedEventType}
+                  options={[
+                    { label: t`All event types`, value: '' },
+                    { label: t`Meetings`, value: 'MEETING' },
+                    { label: t`Calls`, value: 'CALL' },
+                    { label: t`Tasks`, value: 'TASK' },
+                    { label: t`Appointments`, value: 'APPOINTMENT' },
+                    { label: t`Other`, value: 'OTHER' },
+                  ]}
+                  onChange={setSelectedEventType}
+                />
+                <FormSingleRecordPicker
+                  objectNameSingulars={[CoreObjectNameSingular.WorkspaceMember]}
+                  defaultValue={selectedOwnerId}
+                  onChange={(value) =>
+                    setSelectedOwnerId(typeof value === 'string' ? value : null)
+                  }
+                  testId="calendar-owner-filter"
+                />
+                <Select
+                  dropdownId="calendar-target-object-filter"
+                  value={selectedTargetObjectName}
+                  options={[
+                    { label: t`All related records`, value: '' },
+                    { label: t`Person`, value: CoreObjectNameSingular.Person },
+                    {
+                      label: t`Company`,
+                      value: CoreObjectNameSingular.Company,
+                    },
+                    {
+                      label: t`Opportunity`,
+                      value: CoreObjectNameSingular.Opportunity,
+                    },
+                    { label: t`Task`, value: CoreObjectNameSingular.Task },
+                  ]}
+                  onChange={handleTargetObjectNameChange}
+                />
+                {selectedTargetObjectName !== '' && (
+                  <FormSingleRecordPicker
+                    objectNameSingulars={[selectedTargetObjectName]}
+                    defaultValue={selectedTargetRecordId}
+                    onChange={(value) =>
+                      setSelectedTargetRecordId(
+                        typeof value === 'string' ? value : null,
+                      )
+                    }
+                    testId="calendar-target-record-filter"
+                  />
+                )}
+                {hasActiveFilter && (
+                  <Button
+                    size="small"
+                    title={t`Reset filters`}
+                    variant="tertiary"
+                    onClick={() => {
+                      setSelectedEventType('');
+                      setSelectedOwnerId(null);
+                      setSelectedTargetObjectName('');
+                      setSelectedTargetRecordId(null);
+                    }}
+                  />
+                )}
+              </StyledFilters>
               <CalendarMonthGrid
-                calendarEvents={records}
+                calendarEvents={recordsMatchingFilters}
                 days={days}
                 monthLabel={monthLabel}
                 selectedDate={selectedDate}
@@ -217,7 +376,7 @@ export const CalendarPage = () => {
                 onNextMonth={handleNextMonth}
                 onPreviousMonth={handlePreviousMonth}
               />
-              {records.length === 0 && (
+              {recordsMatchingFilters.length === 0 && (
                 <StyledEmptyNotice role="status">
                   {t`No events are scheduled for this month.`}
                   {canCreateCalendarEvent && (

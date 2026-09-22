@@ -9,18 +9,29 @@ import { z } from 'zod';
 
 import { CalendarChannelEntity } from 'src/engine/metadata-modules/calendar-channel/entities/calendar-channel.entity';
 import { ConnectedAccountEntity } from 'src/engine/metadata-modules/connected-account/entities/connected-account.entity';
+import { WorkspaceOrmManager } from 'src/engine/twenty-orm/workspace-orm.manager';
 import { getMissingCreateEventScopes } from 'src/modules/calendar/calendar-event-creation-manager/utils/get-missing-create-event-scopes.util';
 import { isCalendarCreationSupportedProvider } from 'src/modules/calendar/calendar-event-creation-manager/utils/is-calendar-creation-supported-provider.util';
 import { isValidTimeZone } from 'src/modules/calendar/calendar-event-creation-manager/utils/is-valid-time-zone.util';
 import { type CalendarEventComposerResult } from 'src/modules/calendar/calendar-event-creation-manager/types/calendar-event-composer-result.type';
 import { type CalendarEventToCreate } from 'src/modules/calendar/calendar-event-creation-manager/types/calendar-event-to-create.type';
 import { type ComposeCalendarEventParams } from 'src/modules/calendar/calendar-event-creation-manager/types/compose-calendar-event-params.type';
+import { type WorkspaceMemberWorkspaceEntity } from 'src/modules/workspace-member/standard-objects/workspace-member.workspace-entity';
 
 // Timed events need an absolute instant, so the date-time must carry an explicit
 // UTC offset (Z or ±hh:mm); without one the instant is ambiguous and providers
 // would schedule it at the wrong time. All-day boundaries are calendar dates.
 const offsetDateTimeSchema = z.string().datetime({ offset: true });
 const dateSchema = z.string().date();
+const calendarEventTypes = new Set([
+  'MEETING',
+  'CALL',
+  'TASK',
+  'APPOINTMENT',
+  'OTHER',
+]);
+const recurrenceFrequencies = new Set(['NONE', 'DAILY', 'WEEKLY', 'MONTHLY']);
+const reminderMinutes = new Set([0, 5, 15, 30, 60, 1440]);
 
 type ResolvedCalendarAccount =
   | {
@@ -38,13 +49,17 @@ export class CalendarEventComposerService {
     private readonly connectedAccountRepository: Repository<ConnectedAccountEntity>,
     @InjectRepository(CalendarChannelEntity)
     private readonly calendarChannelRepository: Repository<CalendarChannelEntity>,
+    private readonly workspaceOrmManager: WorkspaceOrmManager,
   ) {}
 
   async composeCalendarEvent(
     params: ComposeCalendarEventParams,
     workspaceId: string,
   ): Promise<CalendarEventComposerResult> {
-    const normalizedInput = this.normalizeAndValidateInput(params);
+    const normalizedInput = await this.normalizeAndValidateInput(
+      params,
+      workspaceId,
+    );
 
     if ('error' in normalizedInput) {
       return { success: false, error: normalizedInput.error };
@@ -76,13 +91,82 @@ export class CalendarEventComposerService {
     };
   }
 
-  private normalizeAndValidateInput(
+  private async normalizeAndValidateInput(
     params: ComposeCalendarEventParams,
-  ): CalendarEventToCreate | { error: string } {
+    workspaceId: string,
+  ): Promise<CalendarEventToCreate | { error: string }> {
     const title = params.title?.trim();
 
     if (!isNonEmptyString(title)) {
       return { error: 'A title is required to create a calendar event' };
+    }
+
+    const eventType = params.eventType ?? 'MEETING';
+
+    if (!calendarEventTypes.has(eventType)) {
+      return { error: `Unsupported calendar event type '${eventType}'` };
+    }
+
+    if (isDefined(params.ownerId) && !isValidUuid(params.ownerId)) {
+      return { error: 'ownerId must be a valid UUID' };
+    }
+
+    if (isDefined(params.ownerId)) {
+      const workspaceMemberRepository =
+        this.workspaceOrmManager.getRepository<WorkspaceMemberWorkspaceEntity>(
+          'workspaceMember',
+          { shouldBypassPermissionChecks: true },
+        );
+      const owner = await workspaceMemberRepository.findOne({
+        where: { id: params.ownerId },
+      });
+
+      if (!isDefined(owner)) {
+        return { error: 'ownerId does not belong to this workspace' };
+      }
+    }
+
+    if (
+      isDefined(params.reminderMinutesBefore) &&
+      !reminderMinutes.has(params.reminderMinutesBefore)
+    ) {
+      return {
+        error: 'reminderMinutesBefore must be one of 0, 5, 15, 30, 60 or 1440',
+      };
+    }
+
+    const recurrenceFrequency = params.recurrenceFrequency ?? 'NONE';
+
+    if (!recurrenceFrequencies.has(recurrenceFrequency)) {
+      return {
+        error: `Unsupported recurrence frequency '${recurrenceFrequency}'`,
+      };
+    }
+
+    if (
+      isDefined(params.recurrenceEndDate) &&
+      !dateSchema.safeParse(params.recurrenceEndDate).success
+    ) {
+      return { error: 'recurrenceEndDate must be an ISO 8601 date' };
+    }
+
+    if (
+      isDefined(params.recurrenceOccurrences) &&
+      (!Number.isInteger(params.recurrenceOccurrences) ||
+        params.recurrenceOccurrences < 1)
+    ) {
+      return { error: 'recurrenceOccurrences must be a positive integer' };
+    }
+
+    if (
+      recurrenceFrequency !== 'NONE' &&
+      !isDefined(params.recurrenceEndDate) &&
+      !isDefined(params.recurrenceOccurrences)
+    ) {
+      return {
+        error:
+          'A recurring event needs a recurrence end date or occurrence count',
+      };
     }
 
     const isFullDay = params.isFullDay ?? false;
@@ -128,6 +212,8 @@ export class CalendarEventComposerService {
 
     return {
       title,
+      eventType,
+      ownerId: params.ownerId,
       description: params.description,
       location: params.location,
       startsAt: params.startsAt,
@@ -137,6 +223,10 @@ export class CalendarEventComposerService {
       attendees: attendeeEmails.map((email) => ({ email })),
       sendInvitations,
       addConferencing: params.addConferencing ?? false,
+      reminderMinutesBefore: params.reminderMinutesBefore,
+      recurrenceFrequency,
+      recurrenceEndDate: params.recurrenceEndDate,
+      recurrenceOccurrences: params.recurrenceOccurrences,
     };
   }
 

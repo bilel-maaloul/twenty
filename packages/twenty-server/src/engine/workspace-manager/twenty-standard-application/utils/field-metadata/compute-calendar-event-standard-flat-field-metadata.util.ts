@@ -4,6 +4,7 @@ import { STANDARD_OBJECTS } from 'twenty-shared/metadata';
 import {
   DateDisplayFormat,
   FieldMetadataType,
+  RelationOnDeleteAction,
   RelationType,
 } from 'twenty-shared/types';
 
@@ -253,6 +254,110 @@ export const buildCalendarEventStandardFlatFieldMetadatas = ({
     twentyStandardApplicationId,
     now,
   }),
+  eventType: createStandardFieldFlatMetadata({
+    objectName,
+    workspaceId,
+    context: {
+      fieldName: 'eventType',
+      type: FieldMetadataType.SELECT,
+      label: i18nLabel(
+        msg({ message: `Event type`, context: 'fieldMetadata.label' }),
+      ),
+      description: i18nLabel(
+        msg({
+          message: `Type of calendar activity`,
+          context: 'fieldMetadata.description',
+        }),
+      ),
+      icon: 'IconCalendarEvent',
+      isNullable: false,
+      isUIEditable: true,
+      defaultValue: "'MEETING'",
+      options: [
+        {
+          id: '20202020-0790-4b61-9d5f-2fbf6f63a101',
+          value: 'MEETING',
+          label: i18nLabel(
+            msg({ message: `Meeting`, context: 'fieldMetadata.label' }),
+          ),
+          position: 0,
+          color: 'blue',
+        },
+        {
+          id: '20202020-0790-4b61-9d5f-2fbf6f63a102',
+          value: 'CALL',
+          label: i18nLabel(
+            msg({ message: `Call`, context: 'fieldMetadata.label' }),
+          ),
+          position: 1,
+          color: 'green',
+        },
+        {
+          id: '20202020-0790-4b61-9d5f-2fbf6f63a103',
+          value: 'TASK',
+          label: i18nLabel(
+            msg({ message: `Task`, context: 'fieldMetadata.label' }),
+          ),
+          position: 2,
+          color: 'orange',
+        },
+        {
+          id: '20202020-0790-4b61-9d5f-2fbf6f63a104',
+          value: 'APPOINTMENT',
+          label: i18nLabel(
+            msg({ message: `Appointment`, context: 'fieldMetadata.label' }),
+          ),
+          position: 3,
+          color: 'purple',
+        },
+        {
+          id: '20202020-0790-4b61-9d5f-2fbf6f63a105',
+          value: 'OTHER',
+          label: i18nLabel(
+            msg({ message: `Other`, context: 'fieldMetadata.label' }),
+          ),
+          position: 4,
+          color: 'gray',
+        },
+      ],
+    },
+    standardObjectMetadataRelatedEntityIds,
+    dependencyFlatEntityMaps,
+    twentyStandardApplicationId,
+    now,
+  }),
+  owner: createStandardRelationFieldFlatMetadata({
+    objectName,
+    workspaceId,
+    context: {
+      type: FieldMetadataType.RELATION,
+      morphId: null,
+      fieldName: 'owner',
+      label: i18nLabel(
+        msg({ message: `Owner`, context: 'fieldMetadata.label' }),
+      ),
+      description: i18nLabel(
+        msg({
+          message: `Workspace member responsible for the event`,
+          context: 'fieldMetadata.description',
+        }),
+      ),
+      icon: 'IconUserCircle',
+      isNullable: true,
+      isUIEditable: true,
+      targetObjectName: 'workspaceMember',
+      targetFieldName: 'ownedCalendarEvents',
+      settings: {
+        relationType: RelationType.MANY_TO_ONE,
+        onDelete: RelationOnDeleteAction.SET_NULL,
+        joinColumnName: 'ownerId',
+      },
+    },
+    standardObjectMetadataRelatedEntityIds,
+    dependencyFlatEntityMaps,
+    twentyStandardApplicationId,
+    now,
+  }),
   isCanceled: createStandardFieldFlatMetadata({
     objectName,
     workspaceId,
@@ -490,6 +595,144 @@ export const buildCalendarEventStandardFlatFieldMetadatas = ({
       icon: 'IconLink',
       isNullable: true,
       isUIEditable: false,
+    },
+    standardObjectMetadataRelatedEntityIds,
+    dependencyFlatEntityMaps,
+    twentyStandardApplicationId,
+    now,
+  }),
+  reminderMinutesBefore: createStandardFieldFlatMetadata({
+    objectName,
+    workspaceId,
+    context: {
+      fieldName: 'reminderMinutesBefore',
+      type: FieldMetadataType.NUMBER,
+      label: i18nLabel(
+        msg({ message: `Reminder`, context: 'fieldMetadata.label' }),
+      ),
+      description: i18nLabel(
+        msg({
+          message: `Minutes before the event to remind the owner`,
+          context: 'fieldMetadata.description',
+        }),
+      ),
+      icon: 'IconBell',
+      isNullable: true,
+      isUIEditable: true,
+    },
+    standardObjectMetadataRelatedEntityIds,
+    dependencyFlatEntityMaps,
+    twentyStandardApplicationId,
+    now,
+  }),
+  recurrenceFrequency: createStandardFieldFlatMetadata({
+    objectName,
+    workspaceId,
+    context: {
+      fieldName: 'recurrenceFrequency',
+      type: FieldMetadataType.SELECT,
+      label: i18nLabel(
+        msg({ message: `Recurrence`, context: 'fieldMetadata.label' }),
+      ),
+      description: i18nLabel(
+        msg({
+          message: `Frequency for recurring calendar events`,
+          context: 'fieldMetadata.description',
+        }),
+      ),
+      icon: 'IconRepeat',
+      isNullable: false,
+      isUIEditable: true,
+      defaultValue: "'NONE'",
+      options: [
+        {
+          id: '20202020-0790-4b61-9d5f-2fbf6f63a106',
+          value: 'NONE',
+          label: i18nLabel(
+            msg({ message: `Does not repeat`, context: 'fieldMetadata.label' }),
+          ),
+          position: 0,
+          color: 'gray',
+        },
+        {
+          id: '20202020-0790-4b61-9d5f-2fbf6f63a107',
+          value: 'DAILY',
+          label: i18nLabel(
+            msg({ message: `Daily`, context: 'fieldMetadata.label' }),
+          ),
+          position: 1,
+          color: 'blue',
+        },
+        {
+          id: '20202020-0790-4b61-9d5f-2fbf6f63a108',
+          value: 'WEEKLY',
+          label: i18nLabel(
+            msg({ message: `Weekly`, context: 'fieldMetadata.label' }),
+          ),
+          position: 2,
+          color: 'green',
+        },
+        {
+          id: '20202020-0790-4b61-9d5f-2fbf6f63a109',
+          value: 'MONTHLY',
+          label: i18nLabel(
+            msg({ message: `Monthly`, context: 'fieldMetadata.label' }),
+          ),
+          position: 3,
+          color: 'orange',
+        },
+      ],
+    },
+    standardObjectMetadataRelatedEntityIds,
+    dependencyFlatEntityMaps,
+    twentyStandardApplicationId,
+    now,
+  }),
+  recurrenceEndDate: createStandardFieldFlatMetadata({
+    objectName,
+    workspaceId,
+    context: {
+      fieldName: 'recurrenceEndDate',
+      type: FieldMetadataType.DATE,
+      label: i18nLabel(
+        msg({ message: `Recurrence end date`, context: 'fieldMetadata.label' }),
+      ),
+      description: i18nLabel(
+        msg({
+          message: `Last date on which a recurring event may occur`,
+          context: 'fieldMetadata.description',
+        }),
+      ),
+      icon: 'IconCalendarMinus',
+      isNullable: true,
+      isUIEditable: true,
+    },
+    standardObjectMetadataRelatedEntityIds,
+    dependencyFlatEntityMaps,
+    twentyStandardApplicationId,
+    now,
+  }),
+  recurrenceOccurrences: createStandardFieldFlatMetadata({
+    objectName,
+    workspaceId,
+    context: {
+      fieldName: 'recurrenceOccurrences',
+      type: FieldMetadataType.NUMBER,
+      label: i18nLabel(
+        msg({
+          message: `Recurrence occurrences`,
+          context: 'fieldMetadata.label',
+        }),
+      ),
+      description: i18nLabel(
+        msg({
+          message: `Maximum number of occurrences for a recurring event`,
+          context: 'fieldMetadata.description',
+        }),
+      ),
+      icon: 'IconNumber',
+      isNullable: true,
+      isUIEditable: true,
     },
     standardObjectMetadataRelatedEntityIds,
     dependencyFlatEntityMaps,

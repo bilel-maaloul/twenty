@@ -28,6 +28,7 @@ const DAYS = [
 const CALENDAR_EVENT = {
   __typename: 'CalendarEvent',
   id: 'calendar-event-id',
+  eventType: 'MEETING',
   isCanceled: false,
   isFullDay: false,
   startsAt: '2026-07-15T10:00:00.000Z',
@@ -140,5 +141,44 @@ describe('CalendarMonthGrid', () => {
     });
 
     expect(screen.getByText('+1 more')).toBeVisible();
+  });
+
+  it('expands the remaining events for a date', async () => {
+    const user = userEvent.setup();
+
+    renderCalendarMonthGrid({
+      calendarEvents: Array.from({ length: 4 }, (_, index) => ({
+        ...CALENDAR_EVENT,
+        id: `calendar-event-id-${index}`,
+        title: `Product review ${index}`,
+      })),
+    });
+
+    await user.click(screen.getByRole('button', { name: '+1 more' }));
+
+    expect(screen.getByText('Product review 3')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Show fewer' })).toBeVisible();
+  });
+
+  it('renders event type, participant count, and related-record indication', () => {
+    renderCalendarMonthGrid({
+      calendarEvents: [
+        {
+          ...CALENDAR_EVENT,
+          calendarEventParticipants: [
+            {
+              displayName: 'Ari',
+              handle: 'ari@example.com',
+              id: 'participant-id',
+            },
+          ],
+          calendarEventTargets: [{ id: 'target-id' }],
+        },
+      ],
+    });
+
+    expect(screen.getByText('meeting')).toBeVisible();
+    expect(screen.getByLabelText('1 participants')).toBeVisible();
+    expect(screen.getByLabelText('Related CRM records')).toBeVisible();
   });
 });

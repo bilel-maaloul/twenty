@@ -2,7 +2,7 @@ import { CalendarEventNotSharedContent } from '@/activities/calendar/components/
 import { useUserTimezone } from '@/ui/input/components/internal/date/hooks/useUserTimezone';
 import { styled } from '@linaria/react';
 import { t } from '@lingui/core/macro';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Temporal } from 'temporal-polyfill';
 import {
   isFieldValueRestricted,
@@ -14,10 +14,24 @@ import { MOBILE_VIEWPORT, themeCssVariables } from 'twenty-ui/theme-constants';
 import { formatToHumanReadableTime } from '~/utils/format/formatDate';
 
 export type CalendarPageCalendarEvent = {
+  calendarEventParticipants?: Array<{
+    displayName?: string | null;
+    handle?: string | null;
+    id: string;
+  }>;
   __typename: 'CalendarEvent';
+  calendarEventTargets?: Array<{
+    id: string;
+    targetCompany?: { id: string } | null;
+    targetOpportunity?: { id: string } | null;
+    targetPerson?: { id: string } | null;
+    targetTask?: { id: string } | null;
+  }>;
+  eventType?: string | null;
   id: string;
   isCanceled: boolean;
   isFullDay: boolean;
+  owner?: { id: string } | null;
   startsAt: string;
   title: string | null;
 };
@@ -190,6 +204,23 @@ const StyledEventTime = styled.span`
   flex-shrink: 0;
 `;
 
+const StyledEventType = styled.span`
+  color: ${themeCssVariables.font.color.secondary};
+  flex-shrink: 0;
+  font-size: ${themeCssVariables.font.size.xxs};
+  text-transform: capitalize;
+`;
+
+const StyledRelatedMarker = styled.span`
+  color: ${themeCssVariables.font.color.secondary};
+  flex-shrink: 0;
+`;
+
+const StyledEventParticipantCount = styled.span`
+  color: ${themeCssVariables.font.color.secondary};
+  flex-shrink: 0;
+`;
+
 const StyledEventTitle = styled.span<{ isCanceled: boolean }>`
   overflow: hidden;
   text-decoration: ${({ isCanceled }) =>
@@ -198,11 +229,19 @@ const StyledEventTitle = styled.span<{ isCanceled: boolean }>`
   white-space: nowrap;
 `;
 
-const StyledMoreEvents = styled.span`
+const StyledMoreEvents = styled.button`
+  background: transparent;
+  border: 0;
   color: ${themeCssVariables.font.color.tertiary};
+  cursor: pointer;
   display: block;
   font-size: ${themeCssVariables.font.size.xs};
   padding: ${themeCssVariables.spacing['0.5']};
+  text-align: left;
+
+  &:hover {
+    color: ${themeCssVariables.font.color.primary};
+  }
 `;
 
 const getCalendarEventDateKey = (
@@ -248,6 +287,7 @@ export const CalendarMonthGrid = ({
 }: CalendarMonthGridProps) => {
   const { userTimezone: currentUserTimezone } = useUserTimezone();
   const today = Temporal.Now.plainDateISO(currentUserTimezone);
+  const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
 
   const calendarEventsByDate = useMemo(() => {
     const eventsByDate = new Map<string, CalendarPageCalendarEvent[]>();
@@ -353,7 +393,12 @@ export const CalendarMonthGrid = ({
                       </StyledDayHeader>
                       <StyledEvents>
                         {calendarEventsForDay
-                          .slice(0, MAX_VISIBLE_EVENTS_PER_DAY)
+                          .slice(
+                            0,
+                            expandedDayKey === day.toString()
+                              ? calendarEventsForDay.length
+                              : MAX_VISIBLE_EVENTS_PER_DAY,
+                          )
                           .map((calendarEvent) => {
                             if (isFieldValueRestricted(calendarEvent.title)) {
                               return (
@@ -380,6 +425,11 @@ export const CalendarMonthGrid = ({
                                   onCalendarEventClick(calendarEvent.id);
                                 }}
                               >
+                                {calendarEvent.eventType && (
+                                  <StyledEventType>
+                                    {calendarEvent.eventType.toLowerCase()}
+                                  </StyledEventType>
+                                )}
                                 <StyledEventTime>
                                   {eventTimeLabel}
                                 </StyledEventTime>
@@ -388,13 +438,48 @@ export const CalendarMonthGrid = ({
                                 >
                                   {eventTitle}
                                 </StyledEventTitle>
+                                {calendarEvent.calendarEventParticipants &&
+                                  calendarEvent.calendarEventParticipants
+                                    .length > 0 && (
+                                    <StyledEventParticipantCount
+                                      aria-label={t`${calendarEvent.calendarEventParticipants.length} participants`}
+                                    >
+                                      ·
+                                      {
+                                        calendarEvent.calendarEventParticipants
+                                          .length
+                                      }
+                                    </StyledEventParticipantCount>
+                                  )}
+                                {calendarEvent.calendarEventTargets &&
+                                  calendarEvent.calendarEventTargets.length >
+                                    0 && (
+                                    <StyledRelatedMarker
+                                      aria-label={t`Related CRM records`}
+                                      title={t`Related CRM records`}
+                                    >
+                                      •
+                                    </StyledRelatedMarker>
+                                  )}
                               </StyledEventButton>
                             );
                           })}
                         {calendarEventsForDay.length >
                           MAX_VISIBLE_EVENTS_PER_DAY && (
-                          <StyledMoreEvents>
-                            {t`+${calendarEventsForDay.length - MAX_VISIBLE_EVENTS_PER_DAY} more`}
+                          <StyledMoreEvents
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setExpandedDayKey((currentDayKey) =>
+                                currentDayKey === day.toString()
+                                  ? null
+                                  : day.toString(),
+                              );
+                            }}
+                          >
+                            {expandedDayKey === day.toString()
+                              ? t`Show fewer`
+                              : t`+${calendarEventsForDay.length - MAX_VISIBLE_EVENTS_PER_DAY} more`}
                           </StyledMoreEvents>
                         )}
                       </StyledEvents>

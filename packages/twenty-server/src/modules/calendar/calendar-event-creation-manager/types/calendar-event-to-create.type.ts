@@ -2,6 +2,8 @@ import { type CalendarEventAttendeeToCreate } from 'src/modules/calendar/calenda
 
 export type CalendarEventToCreate = {
   title: string;
+  eventType?: string;
+  ownerId?: string;
   description?: string;
   location?: string;
   startsAt: string;
@@ -11,4 +13,8 @@ export type CalendarEventToCreate = {
   attendees: CalendarEventAttendeeToCreate[];
   sendInvitations: boolean;
   addConferencing: boolean;
+  reminderMinutesBefore?: number;
+  recurrenceFrequency?: string;
+  recurrenceEndDate?: string;
+  recurrenceOccurrences?: number;
 };

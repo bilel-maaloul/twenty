@@ -881,6 +881,39 @@ export const buildWorkspaceMemberStandardFlatFieldMetadatas = ({
     twentyStandardApplicationId,
     now,
   }),
+  ownedCalendarEvents: createStandardRelationFieldFlatMetadata({
+    objectName,
+    workspaceId,
+    context: {
+      type: FieldMetadataType.RELATION,
+      morphId: null,
+      fieldName: 'ownedCalendarEvents',
+      label: i18nLabel(
+        msg({
+          message: `Owned calendar events`,
+          context: 'fieldMetadata.label',
+        }),
+      ),
+      description: i18nLabel(
+        msg({
+          message: `Calendar events owned by this workspace member`,
+          context: 'fieldMetadata.description',
+        }),
+      ),
+      icon: 'IconCalendarEvent',
+      isNullable: true,
+      isUIEditable: false,
+      targetObjectName: 'calendarEvent',
+      targetFieldName: 'owner',
+      settings: {
+        relationType: RelationType.ONE_TO_MANY,
+      },
+    },
+    standardObjectMetadataRelatedEntityIds,
+    dependencyFlatEntityMaps,
+    twentyStandardApplicationId,
+    now,
+  }),
   createdBy: createStandardFieldFlatMetadata({
     objectName,
     workspaceId,

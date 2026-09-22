@@ -16,6 +16,7 @@ import { parseEmailRecipients } from '@/activities/emails/recipients/utils/parse
 import { serializeEmailRecipients } from '@/activities/emails/recipients/utils/serializeEmailRecipients';
 import { useFindOneRecord } from '@/object-record/hooks/useFindOneRecord';
 import { searchRecordStoreFamilyState } from '@/object-record/record-picker/multiple-record-picker/states/searchRecordStoreComponentFamilyState';
+import { currentWorkspaceMemberState } from '@/auth/states/currentWorkspaceMemberState';
 import { type RecordPickerPickableMorphItem } from '@/object-record/record-picker/types/RecordPickerPickableMorphItem';
 import { useMyConnectedAccounts } from '@/settings/accounts/hooks/useMyConnectedAccounts';
 import { useSnackBar } from '@/ui/feedback/snack-bar-manager/hooks/useSnackBar';
@@ -42,6 +43,7 @@ export const useCalendarEventComposer = ({
   const { refetchTimelineCalendarEvents } = useRefetchTimelineCalendarEvents();
   const { createCalendarEventTargets } = useCreateCalendarEventTargets();
   const { enqueueErrorSnackBar } = useSnackBar();
+  const currentWorkspaceMember = useAtomStateValue(currentWorkspaceMemberState);
   const store = useStore();
   const isCalendarEventComposerCreating = useAtomStateValue(
     isCalendarEventComposerCreatingState,
@@ -51,6 +53,12 @@ export const useCalendarEventComposer = ({
     initialValues?.connectedAccountId ?? '',
   );
   const [title, setTitle] = useState('');
+  const [eventType, setEventType] = useState(
+    initialValues?.eventType ?? 'MEETING',
+  );
+  const [ownerId, setOwnerId] = useState<string | null>(
+    initialValues?.ownerId ?? currentWorkspaceMember?.id ?? null,
+  );
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
   const [timeZone, setTimeZone] = useState(initialValues?.timeZone ?? 'UTC');
@@ -71,6 +79,18 @@ export const useCalendarEventComposer = ({
     string[]
   >([]);
   const [addConferencing, setAddConferencing] = useState(false);
+  const [reminderMinutesBefore, setReminderMinutesBefore] = useState<
+    number | null
+  >(initialValues?.reminderMinutesBefore ?? null);
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState(
+    initialValues?.recurrenceFrequency ?? 'NONE',
+  );
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState<string | null>(
+    initialValues?.recurrenceEndDate ?? null,
+  );
+  const [recurrenceOccurrences, setRecurrenceOccurrences] = useState<
+    number | null
+  >(initialValues?.recurrenceOccurrences ?? null);
   const [dates, setDates] = useState(() =>
     getCalendarEventComposerDefaultDates({
       initialDate: initialValues?.initialDate,
@@ -181,6 +201,11 @@ export const useCalendarEventComposer = ({
     ? dates.endsAt.slice(0, 10) > dates.startsAt.slice(0, 10)
     : Date.parse(dates.endsAt) > Date.parse(dates.startsAt);
 
+  const hasValidRecurrence =
+    recurrenceFrequency === 'NONE' ||
+    isNonEmptyString(recurrenceEndDate ?? '') ||
+    (recurrenceOccurrences !== null && recurrenceOccurrences > 0);
+
   const canCreate =
     isNonEmptyString(title.trim()) &&
     isDefined(selectedAccount) &&
@@ -188,6 +213,7 @@ export const useCalendarEventComposer = ({
     invalidAttendeeEmails.length === 0 &&
     !hasTooManyAttendees &&
     hasValidDateRange &&
+    hasValidRecurrence &&
     // Creating before it resolves would silently drop the relation the composer
     // was opened for.
     !(isDefined(contextObjectMetadataItem) && isContextRecordLoading) &&
@@ -245,6 +271,8 @@ export const useCalendarEventComposer = ({
       const { success, calendarEventId } = await createCalendarEvent({
         connectedAccountId,
         title: title.trim(),
+        eventType,
+        ownerId: ownerId ?? undefined,
         description: description.trim() || undefined,
         location: location.trim() || undefined,
         startsAt: dates.startsAt,
@@ -254,6 +282,10 @@ export const useCalendarEventComposer = ({
         attendees: serializeEmailRecipients(attendees),
         sendInvitations,
         addConferencing,
+        reminderMinutesBefore: reminderMinutesBefore ?? undefined,
+        recurrenceFrequency,
+        recurrenceEndDate: recurrenceEndDate ?? undefined,
+        recurrenceOccurrences: recurrenceOccurrences ?? undefined,
       });
 
       if (!success) {
@@ -302,9 +334,15 @@ export const useCalendarEventComposer = ({
     dates.endsAt,
     dates.startsAt,
     description,
+    eventType,
     enqueueErrorSnackBar,
     isFullDay,
     location,
+    ownerId,
+    recurrenceEndDate,
+    recurrenceFrequency,
+    recurrenceOccurrences,
+    reminderMinutesBefore,
     onCreated,
     initialValues,
     refetchTimelineCalendarEvents,
@@ -326,16 +364,23 @@ export const useCalendarEventComposer = ({
     connectedAccountId,
     dates,
     description,
+    eventType,
     handleCreate,
     handleIsFullDayChange,
     handleStartsAtChange,
     handleTargetChange,
     hasTooManyAttendees,
     hasValidDateRange,
+    hasValidRecurrence,
     invalidAttendeeEmails,
     isFullDay,
     location,
     missingScopes,
+    ownerId,
+    recurrenceEndDate,
+    recurrenceFrequency,
+    recurrenceOccurrences,
+    reminderMinutesBefore,
     selectedAccount,
     sendInvitations,
     setAddConferencing,
@@ -347,6 +392,12 @@ export const useCalendarEventComposer = ({
     setSendInvitations,
     setTimeZone,
     setTitle,
+    setEventType,
+    setOwnerId,
+    setReminderMinutesBefore,
+    setRecurrenceEndDate,
+    setRecurrenceFrequency,
+    setRecurrenceOccurrences,
     targets,
     timeZone,
   };

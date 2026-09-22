@@ -1,4 +1,4 @@
-import { Field, InputType } from '@nestjs/graphql';
+import { Field, InputType, Int } from '@nestjs/graphql';
 
 @InputType()
 export class CreateCalendarEventInput {
@@ -7,6 +7,12 @@ export class CreateCalendarEventInput {
 
   @Field(() => String)
   title: string;
+
+  @Field(() => String, { nullable: true })
+  eventType?: string;
+
+  @Field(() => String, { nullable: true })
+  ownerId?: string;
 
   @Field(() => String, { nullable: true })
   description?: string;
@@ -35,4 +41,16 @@ export class CreateCalendarEventInput {
 
   @Field(() => Boolean, { nullable: true })
   addConferencing?: boolean;
+
+  @Field(() => Int, { nullable: true })
+  reminderMinutesBefore?: number;
+
+  @Field(() => String, { nullable: true })
+  recurrenceFrequency?: string;
+
+  @Field(() => String, { nullable: true })
+  recurrenceEndDate?: string;
+
+  @Field(() => Int, { nullable: true })
+  recurrenceOccurrences?: number;
 }

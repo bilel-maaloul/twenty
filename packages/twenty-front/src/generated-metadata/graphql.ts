@@ -1263,8 +1263,14 @@ export type CreateCalendarEventInput = {
   connectedAccountId: Scalars['String']['input'];
   description?: InputMaybe<Scalars['String']['input']>;
   endsAt: Scalars['String']['input'];
+  eventType?: InputMaybe<Scalars['String']['input']>;
   isFullDay?: InputMaybe<Scalars['Boolean']['input']>;
   location?: InputMaybe<Scalars['String']['input']>;
+  ownerId?: InputMaybe<Scalars['String']['input']>;
+  recurrenceEndDate?: InputMaybe<Scalars['String']['input']>;
+  recurrenceFrequency?: InputMaybe<Scalars['String']['input']>;
+  recurrenceOccurrences?: InputMaybe<Scalars['Int']['input']>;
+  reminderMinutesBefore?: InputMaybe<Scalars['Int']['input']>;
   sendInvitations?: InputMaybe<Scalars['Boolean']['input']>;
   startsAt: Scalars['String']['input'];
   timeZone?: InputMaybe<Scalars['String']['input']>;
