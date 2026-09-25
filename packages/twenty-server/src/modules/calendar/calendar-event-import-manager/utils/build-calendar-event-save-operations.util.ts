@@ -4,6 +4,7 @@ import { v4 as uuid } from 'uuid';
 import { type CalendarEventSaveOperations } from 'src/modules/calendar/calendar-event-import-manager/types/calendar-event-save-operations.type';
 import { type CalendarEventSavePlan } from 'src/modules/calendar/calendar-event-import-manager/types/calendar-event-save-plan.type';
 import { type CalendarChannelEventAssociationWorkspaceEntity } from 'src/modules/calendar/common/standard-objects/calendar-channel-event-association.workspace-entity';
+import { type CalendarEventWorkspaceEntity } from 'src/modules/calendar/common/standard-objects/calendar-event.workspace-entity';
 import { type FetchedCalendarEvent } from 'src/modules/calendar/common/types/fetched-calendar-event';
 import { type FetchedParticipantWithCalendarEventId } from 'src/modules/calendar/common/types/fetched-participant-with-calendar-event-id.type';
 
@@ -11,10 +12,22 @@ export const buildCalendarEventSaveOperations = ({
   fetchedCalendarEvents,
   existingAssociations,
   calendarChannelId,
+  calendarEventMetadata,
 }: {
   fetchedCalendarEvents: FetchedCalendarEvent[];
   existingAssociations: CalendarChannelEventAssociationWorkspaceEntity[];
   calendarChannelId: string;
+  calendarEventMetadata?: Partial<
+    Pick<
+      CalendarEventWorkspaceEntity,
+      | 'eventType'
+      | 'ownerId'
+      | 'reminderMinutesBefore'
+      | 'recurrenceFrequency'
+      | 'recurrenceEndDate'
+      | 'recurrenceOccurrences'
+    >
+  >;
 }): CalendarEventSavePlan => {
   const existingAssociationByEventExternalId = new Map(
     existingAssociations.map((association) => [
@@ -57,6 +70,7 @@ export const buildCalendarEventSaveOperations = ({
       },
       externalCreatedAt: fetchedCalendarEvent.externalCreatedAt,
       externalUpdatedAt: fetchedCalendarEvent.externalUpdatedAt,
+      ...calendarEventMetadata,
     };
 
     const existingAssociation =

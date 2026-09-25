@@ -5,9 +5,13 @@ import { type EntityRelation } from 'src/engine/workspace-manager/workspace-migr
 import { type CalendarChannelEventAssociationWorkspaceEntity } from 'src/modules/calendar/common/standard-objects/calendar-channel-event-association.workspace-entity';
 import { type CalendarEventParticipantWorkspaceEntity } from 'src/modules/calendar/common/standard-objects/calendar-event-participant.workspace-entity';
 import { type CalendarEventTargetWorkspaceEntity } from 'src/modules/calendar/common/standard-objects/calendar-event-target.workspace-entity';
+import { type WorkspaceMemberWorkspaceEntity } from 'src/modules/workspace-member/standard-objects/workspace-member.workspace-entity';
 
 export class CalendarEventWorkspaceEntity extends BaseWorkspaceEntity {
   title: string | null;
+  eventType: string;
+  owner: EntityRelation<WorkspaceMemberWorkspaceEntity> | null;
+  ownerId: string | null;
   isCanceled: boolean;
   isFullDay: boolean;
   startsAt: string | null;
@@ -19,6 +23,10 @@ export class CalendarEventWorkspaceEntity extends BaseWorkspaceEntity {
   iCalUid: string | null;
   conferenceSolution: string | null;
   conferenceLink: LinksMetadata;
+  reminderMinutesBefore: number | null;
+  recurrenceFrequency: string | null;
+  recurrenceEndDate: string | null;
+  recurrenceOccurrences: number | null;
   calendarChannelEventAssociations: EntityRelation<
     CalendarChannelEventAssociationWorkspaceEntity[]
   >;

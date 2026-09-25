@@ -380,6 +380,39 @@ export const buildTaskStandardFlatFieldMetadatas = ({
     twentyStandardApplicationId,
     now,
   }),
+  calendarEventTargets: createStandardRelationFieldFlatMetadata({
+    objectName,
+    workspaceId,
+    context: {
+      type: FieldMetadataType.RELATION,
+      morphId: null,
+      fieldName: 'calendarEventTargets',
+      label: i18nLabel(
+        msg({ message: `Calendar events`, context: 'fieldMetadata.label' }),
+      ),
+      description: i18nLabel(
+        msg({
+          message: `Calendar events linked to this task`,
+          context: 'fieldMetadata.description',
+        }),
+      ),
+      icon: 'IconCalendarEvent',
+      isNullable: true,
+      isUIEditable: false,
+      targetObjectName: 'calendarEventTarget',
+      targetFieldName: 'targetTask',
+      settings: {
+        relationType: RelationType.ONE_TO_MANY,
+      },
+      junctionTargetFieldUniversalIdentifier:
+        STANDARD_OBJECTS.calendarEventTarget.fields.calendarEvent
+          .universalIdentifier,
+    },
+    standardObjectMetadataRelatedEntityIds,
+    dependencyFlatEntityMaps,
+    twentyStandardApplicationId,
+    now,
+  }),
   attachments: createStandardRelationFieldFlatMetadata({
     objectName,
     workspaceId,

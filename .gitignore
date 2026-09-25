@@ -34,6 +34,10 @@ test-results/
 dump.rdb
 .tinyb
 
+docs\crm-product-requirements.md
+.agents/
+.agents\skills\twenty-crm-customization\SKILL.md
+AGENTS.md
 .notes
 /data/
 /.devenv/

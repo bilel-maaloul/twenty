@@ -300,6 +300,12 @@ export const STANDARD_OBJECT_FIELDS = {
       STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.calendarEvent,
     ),
     title: { universalIdentifier: '20202020-080e-49d1-b21d-9702a7e2525c' },
+    eventType: {
+      universalIdentifier: '20202020-0790-4b61-9d5f-2fbf6f63a001',
+    },
+    owner: {
+      universalIdentifier: '20202020-0790-4b61-9d5f-2fbf6f63a002',
+    },
     isCanceled: {
       universalIdentifier: '20202020-335b-4e04-b470-43b84b64863c',
     },
@@ -330,6 +336,18 @@ export const STANDARD_OBJECT_FIELDS = {
     },
     conferenceLink: {
       universalIdentifier: '20202020-35da-43ef-9ca0-e936e9dc237b',
+    },
+    reminderMinutesBefore: {
+      universalIdentifier: '20202020-0790-4b61-9d5f-2fbf6f63a003',
+    },
+    recurrenceFrequency: {
+      universalIdentifier: '20202020-0790-4b61-9d5f-2fbf6f63a004',
+    },
+    recurrenceEndDate: {
+      universalIdentifier: '20202020-0790-4b61-9d5f-2fbf6f63a005',
+    },
+    recurrenceOccurrences: {
+      universalIdentifier: '20202020-0790-4b61-9d5f-2fbf6f63a006',
     },
     calendarChannelEventAssociations: {
       universalIdentifier: '20202020-bdf8-4572-a2cc-ecbb6bcc3a02',
@@ -385,6 +403,16 @@ export const STANDARD_OBJECT_FIELDS = {
           STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.calendarEventTarget,
         relationTargetObjectUniversalIdentifier:
           STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.opportunity,
+      }),
+    },
+    targetTask: {
+      universalIdentifier: getSystemRelationFieldUniversalIdentifier({
+        applicationUniversalIdentifier:
+          TWENTY_STANDARD_APPLICATION_UNIVERSAL_IDENTIFIER,
+        objectUniversalIdentifier:
+          STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.calendarEventTarget,
+        relationTargetObjectUniversalIdentifier:
+          STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.task,
       }),
     },
   },
@@ -1065,6 +1093,15 @@ export const STANDARD_OBJECT_FIELDS = {
           STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.timelineActivity,
       }),
     },
+    calendarEventTargets: {
+      universalIdentifier: getSystemRelationFieldUniversalIdentifier({
+        applicationUniversalIdentifier:
+          TWENTY_STANDARD_APPLICATION_UNIVERSAL_IDENTIFIER,
+        objectUniversalIdentifier: STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.task,
+        relationTargetObjectUniversalIdentifier:
+          STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.calendarEventTarget,
+      }),
+    },
   },
   taskTarget: {
     ...buildStandardObjectSystemFields(
@@ -1258,6 +1295,16 @@ export const STANDARD_OBJECT_FIELDS = {
     },
     ownedOpportunities: {
       universalIdentifier: '20202020-9e4d-4b3a-8c1f-6d7e8f9a0b1c',
+    },
+    ownedCalendarEvents: {
+      universalIdentifier: getSystemRelationFieldUniversalIdentifier({
+        applicationUniversalIdentifier:
+          TWENTY_STANDARD_APPLICATION_UNIVERSAL_IDENTIFIER,
+        objectUniversalIdentifier:
+          STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.workspaceMember,
+        relationTargetObjectUniversalIdentifier:
+          STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.calendarEvent,
+      }),
     },
     accountOwnerForCompanies: {
       universalIdentifier: '20202020-dc29-4bd4-a3c1-29eafa324bee',

@@ -16,6 +16,7 @@ import { parseEmailRecipients } from '@/activities/emails/recipients/utils/parse
 import { serializeEmailRecipients } from '@/activities/emails/recipients/utils/serializeEmailRecipients';
 import { useFindOneRecord } from '@/object-record/hooks/useFindOneRecord';
 import { searchRecordStoreFamilyState } from '@/object-record/record-picker/multiple-record-picker/states/searchRecordStoreComponentFamilyState';
+import { currentWorkspaceMemberState } from '@/auth/states/currentWorkspaceMemberState';
 import { type RecordPickerPickableMorphItem } from '@/object-record/record-picker/types/RecordPickerPickableMorphItem';
 import { useMyConnectedAccounts } from '@/settings/accounts/hooks/useMyConnectedAccounts';
 import { useSnackBar } from '@/ui/feedback/snack-bar-manager/hooks/useSnackBar';
@@ -42,6 +43,7 @@ export const useCalendarEventComposer = ({
   const { refetchTimelineCalendarEvents } = useRefetchTimelineCalendarEvents();
   const { createCalendarEventTargets } = useCreateCalendarEventTargets();
   const { enqueueErrorSnackBar } = useSnackBar();
+  const currentWorkspaceMember = useAtomStateValue(currentWorkspaceMemberState);
   const store = useStore();
   const isCalendarEventComposerCreating = useAtomStateValue(
     isCalendarEventComposerCreatingState,
@@ -51,6 +53,12 @@ export const useCalendarEventComposer = ({
     initialValues?.connectedAccountId ?? '',
   );
   const [title, setTitle] = useState('');
+  const [eventType, setEventType] = useState(
+    initialValues?.eventType ?? 'MEETING',
+  );
+  const [ownerId, setOwnerId] = useState<string | null>(
+    initialValues?.ownerId ?? currentWorkspaceMember?.id ?? null,
+  );
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
   const [timeZone, setTimeZone] = useState(initialValues?.timeZone ?? 'UTC');
@@ -71,8 +79,21 @@ export const useCalendarEventComposer = ({
     string[]
   >([]);
   const [addConferencing, setAddConferencing] = useState(false);
+  const [reminderMinutesBefore, setReminderMinutesBefore] = useState<
+    number | null
+  >(initialValues?.reminderMinutesBefore ?? null);
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState(
+    initialValues?.recurrenceFrequency ?? 'NONE',
+  );
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState<string | null>(
+    initialValues?.recurrenceEndDate ?? null,
+  );
+  const [recurrenceOccurrences, setRecurrenceOccurrences] = useState<
+    number | null
+  >(initialValues?.recurrenceOccurrences ?? null);
   const [dates, setDates] = useState(() =>
     getCalendarEventComposerDefaultDates({
+      initialDate: initialValues?.initialDate,
       now: Temporal.Now.instant(),
       timeZone: initialValues?.timeZone ?? 'UTC',
     }),
@@ -104,6 +125,16 @@ export const useCalendarEventComposer = ({
     ({ nameSingular }) =>
       nameSingular === initialValues?.contextRecord.objectNameSingular,
   );
+  const composerContextRecord = initialValues?.contextRecord;
+
+  const timelineContext = isNonEmptyString(
+    composerContextRecord?.recordId ?? '',
+  )
+    ? {
+        objectNameSingular: composerContextRecord?.objectNameSingular ?? '',
+        recordId: composerContextRecord?.recordId ?? '',
+      }
+    : null;
 
   const { record: contextRecord, loading: isContextRecordLoading } =
     useFindOneRecord({
@@ -180,6 +211,11 @@ export const useCalendarEventComposer = ({
     ? dates.endsAt.slice(0, 10) > dates.startsAt.slice(0, 10)
     : Date.parse(dates.endsAt) > Date.parse(dates.startsAt);
 
+  const hasValidRecurrence =
+    recurrenceFrequency === 'NONE' ||
+    isNonEmptyString(recurrenceEndDate ?? '') ||
+    (recurrenceOccurrences !== null && recurrenceOccurrences > 0);
+
   const canCreate =
     isNonEmptyString(title.trim()) &&
     isDefined(selectedAccount) &&
@@ -187,6 +223,7 @@ export const useCalendarEventComposer = ({
     invalidAttendeeEmails.length === 0 &&
     !hasTooManyAttendees &&
     hasValidDateRange &&
+    hasValidRecurrence &&
     // Creating before it resolves would silently drop the relation the composer
     // was opened for.
     !(isDefined(contextObjectMetadataItem) && isContextRecordLoading) &&
@@ -244,6 +281,8 @@ export const useCalendarEventComposer = ({
       const { success, calendarEventId } = await createCalendarEvent({
         connectedAccountId,
         title: title.trim(),
+        eventType,
+        ownerId: ownerId ?? undefined,
         description: description.trim() || undefined,
         location: location.trim() || undefined,
         startsAt: dates.startsAt,
@@ -253,6 +292,10 @@ export const useCalendarEventComposer = ({
         attendees: serializeEmailRecipients(attendees),
         sendInvitations,
         addConferencing,
+        reminderMinutesBefore: reminderMinutesBefore ?? undefined,
+        recurrenceFrequency,
+        recurrenceEndDate: recurrenceEndDate ?? undefined,
+        recurrenceOccurrences: recurrenceOccurrences ?? undefined,
       });
 
       if (!success) {
@@ -261,8 +304,8 @@ export const useCalendarEventComposer = ({
 
       // The event already exists at this point, so a failure to link the
       // related records must not keep the composer open: retrying would create
-      // a second event. A missing id means persistence failed, and the next
-      // provider sync then recreates the event without these links.
+      // a second event. The creation hook treats an absent local id as a
+      // persistence failure, so this branch only handles relation-linking failures.
       if (targets.length > 0) {
         let areTargetsLinked = false;
 
@@ -276,9 +319,11 @@ export const useCalendarEventComposer = ({
         }
 
         if (areTargetsLinked) {
-          // createCalendarEvent already refetched, but that ran before these
-          // links existed, so an event related only through them stays invisible.
-          await refetchTimelineCalendarEvents();
+          // The global calendar has its own date-range refetch. Only refresh a
+          // timeline query when this composer was opened from a real record.
+          if (isDefined(timelineContext)) {
+            await refetchTimelineCalendarEvents(timelineContext);
+          }
         } else {
           enqueueErrorSnackBar({
             message: t`Failed to link the related records to this event`,
@@ -286,6 +331,7 @@ export const useCalendarEventComposer = ({
         }
       }
 
+      initialValues?.onCreated?.();
       onCreated();
     } finally {
       store.set(isCalendarEventComposerCreatingState.atom, false);
@@ -300,16 +346,24 @@ export const useCalendarEventComposer = ({
     dates.endsAt,
     dates.startsAt,
     description,
+    eventType,
     enqueueErrorSnackBar,
     isFullDay,
     location,
+    ownerId,
+    recurrenceEndDate,
+    recurrenceFrequency,
+    recurrenceOccurrences,
+    reminderMinutesBefore,
     onCreated,
+    initialValues,
     refetchTimelineCalendarEvents,
     sendInvitations,
     store,
     targets,
     timeZone,
     title,
+    timelineContext,
   ]);
 
   return {
@@ -323,16 +377,23 @@ export const useCalendarEventComposer = ({
     connectedAccountId,
     dates,
     description,
+    eventType,
     handleCreate,
     handleIsFullDayChange,
     handleStartsAtChange,
     handleTargetChange,
     hasTooManyAttendees,
     hasValidDateRange,
+    hasValidRecurrence,
     invalidAttendeeEmails,
     isFullDay,
     location,
     missingScopes,
+    ownerId,
+    recurrenceEndDate,
+    recurrenceFrequency,
+    recurrenceOccurrences,
+    reminderMinutesBefore,
     selectedAccount,
     sendInvitations,
     setAddConferencing,
@@ -344,6 +405,12 @@ export const useCalendarEventComposer = ({
     setSendInvitations,
     setTimeZone,
     setTitle,
+    setEventType,
+    setOwnerId,
+    setReminderMinutesBefore,
+    setRecurrenceEndDate,
+    setRecurrenceFrequency,
+    setRecurrenceOccurrences,
     targets,
     timeZone,
   };

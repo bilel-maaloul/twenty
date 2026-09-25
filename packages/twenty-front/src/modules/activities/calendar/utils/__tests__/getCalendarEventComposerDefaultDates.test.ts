@@ -2,6 +2,19 @@ import { getCalendarEventComposerDefaultDates } from '@/activities/calendar/util
 import { Temporal } from 'temporal-polyfill';
 
 describe('getCalendarEventComposerDefaultDates', () => {
+  it('starts at 9 AM on a requested date and lasts one hour', () => {
+    expect(
+      getCalendarEventComposerDefaultDates({
+        initialDate: '2026-08-24',
+        now: Temporal.Instant.from('2026-08-23T19:16:47Z'),
+        timeZone: 'Europe/Paris',
+      }),
+    ).toEqual({
+      startsAt: '2026-08-24T07:00:00Z',
+      endsAt: '2026-08-24T08:00:00Z',
+    });
+  });
+
   it('starts at the next half-hour and lasts one hour', () => {
     expect(
       getCalendarEventComposerDefaultDates({

@@ -205,6 +205,8 @@ export const STANDARD_OBJECTS = {
         fields: STANDARD_OBJECT_FIELDS.calendarEvent,
         viewFieldNames: [
           'title',
+          'eventType',
+          'owner',
           'startsAt',
           'endsAt',
           'isFullDay',
@@ -227,7 +229,13 @@ export const STANDARD_OBJECTS = {
           'conferenceLink',
           'location',
           'description',
+          'eventType',
+          'owner',
           'calendarEventTargets',
+          'reminderMinutesBefore',
+          'recurrenceFrequency',
+          'recurrenceEndDate',
+          'recurrenceOccurrences',
           'externalCreatedAt',
           'externalUpdatedAt',
           'iCalUid',
@@ -268,6 +276,12 @@ export const STANDARD_OBJECTS = {
       },
       calendarEventOpportunityUniqueIndex: {
         universalIdentifier: 'c8183b17-5dfe-4e02-8d9d-aef8e54ef07d',
+      },
+      taskIdIndex: {
+        universalIdentifier: '20202020-0790-4b61-9d5f-2fbf6f63a007',
+      },
+      calendarEventTaskUniqueIndex: {
+        universalIdentifier: '20202020-0790-4b61-9d5f-2fbf6f63a008',
       },
     },
     views: {},

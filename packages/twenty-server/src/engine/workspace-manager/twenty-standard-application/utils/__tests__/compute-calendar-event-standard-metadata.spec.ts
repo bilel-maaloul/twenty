@@ -29,6 +29,24 @@ describe('CalendarEvent standard metadata build', () => {
     ).toBeDefined();
   });
 
+  it('uses the calendar event relation as the task junction target', () => {
+    const taskCalendarEventTargetsField =
+      allFlatEntityMaps.flatFieldMetadataMaps.byUniversalIdentifier[
+        STANDARD_OBJECTS.task.fields.calendarEventTargets.universalIdentifier
+      ];
+
+    expect(taskCalendarEventTargetsField).toMatchObject({
+      relationTargetFieldMetadataUniversalIdentifier:
+        STANDARD_OBJECTS.calendarEventTarget.fields.targetTask
+          .universalIdentifier,
+      universalSettings: {
+        junctionTargetFieldUniversalIdentifier:
+          STANDARD_OBJECTS.calendarEventTarget.fields.calendarEvent
+            .universalIdentifier,
+      },
+    });
+  });
+
   it('uses the important calendar event detail fields on the record page', () => {
     const recordPageViewFields = Object.values(
       allFlatEntityMaps.flatViewFieldMaps.byUniversalIdentifier,
@@ -45,10 +63,12 @@ describe('CalendarEvent standard metadata build', () => {
       (viewField) => viewField.fieldMetadataUniversalIdentifier,
     );
 
-    expect(viewFieldFieldUniversalIdentifiers).toHaveLength(13);
+    expect(viewFieldFieldUniversalIdentifiers).toHaveLength(19);
     expect(viewFieldFieldUniversalIdentifiers).toEqual(
       expect.arrayContaining([
         STANDARD_OBJECTS.calendarEvent.fields.title.universalIdentifier,
+        STANDARD_OBJECTS.calendarEvent.fields.eventType.universalIdentifier,
+        STANDARD_OBJECTS.calendarEvent.fields.owner.universalIdentifier,
         STANDARD_OBJECTS.calendarEvent.fields.startsAt.universalIdentifier,
         STANDARD_OBJECTS.calendarEvent.fields.endsAt.universalIdentifier,
         STANDARD_OBJECTS.calendarEvent.fields.isFullDay.universalIdentifier,
@@ -58,6 +78,14 @@ describe('CalendarEvent standard metadata build', () => {
         STANDARD_OBJECTS.calendarEvent.fields.location.universalIdentifier,
         STANDARD_OBJECTS.calendarEvent.fields.description.universalIdentifier,
         STANDARD_OBJECTS.calendarEvent.fields.calendarEventTargets
+          .universalIdentifier,
+        STANDARD_OBJECTS.calendarEvent.fields.reminderMinutesBefore
+          .universalIdentifier,
+        STANDARD_OBJECTS.calendarEvent.fields.recurrenceFrequency
+          .universalIdentifier,
+        STANDARD_OBJECTS.calendarEvent.fields.recurrenceEndDate
+          .universalIdentifier,
+        STANDARD_OBJECTS.calendarEvent.fields.recurrenceOccurrences
           .universalIdentifier,
         STANDARD_OBJECTS.calendarEvent.fields.externalCreatedAt
           .universalIdentifier,
@@ -84,12 +112,22 @@ describe('CalendarEvent standard metadata build', () => {
         })
         .map((viewField) => viewField.fieldMetadataUniversalIdentifier),
     ).toEqual([
-      STANDARD_OBJECTS.calendarEvent.fields.startsAt.universalIdentifier,
+      STANDARD_OBJECTS.calendarEvent.fields.eventType.universalIdentifier,
+      STANDARD_OBJECTS.calendarEvent.fields.owner.universalIdentifier,
       STANDARD_OBJECTS.calendarEvent.fields.endsAt.universalIdentifier,
+      STANDARD_OBJECTS.calendarEvent.fields.startsAt.universalIdentifier,
       STANDARD_OBJECTS.calendarEvent.fields.conferenceLink.universalIdentifier,
       STANDARD_OBJECTS.calendarEvent.fields.location.universalIdentifier,
       STANDARD_OBJECTS.calendarEvent.fields.description.universalIdentifier,
       STANDARD_OBJECTS.calendarEvent.fields.calendarEventTargets
+        .universalIdentifier,
+      STANDARD_OBJECTS.calendarEvent.fields.reminderMinutesBefore
+        .universalIdentifier,
+      STANDARD_OBJECTS.calendarEvent.fields.recurrenceFrequency
+        .universalIdentifier,
+      STANDARD_OBJECTS.calendarEvent.fields.recurrenceEndDate
+        .universalIdentifier,
+      STANDARD_OBJECTS.calendarEvent.fields.recurrenceOccurrences
         .universalIdentifier,
     ]);
 

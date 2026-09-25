@@ -57,6 +57,8 @@ export class CreateCalendarEventResolver {
           {
             connectedAccountId: input.connectedAccountId,
             title: input.title,
+            eventType: input.eventType,
+            ownerId: input.ownerId,
             description: input.description,
             location: input.location,
             startsAt: input.startsAt,
@@ -66,6 +68,10 @@ export class CreateCalendarEventResolver {
             attendees: input.attendees,
             sendInvitations: input.sendInvitations,
             addConferencing: input.addConferencing,
+            reminderMinutesBefore: input.reminderMinutesBefore,
+            recurrenceFrequency: input.recurrenceFrequency,
+            recurrenceEndDate: input.recurrenceEndDate,
+            recurrenceOccurrences: input.recurrenceOccurrences,
           },
           workspace.id,
         );
@@ -93,7 +99,7 @@ export class CreateCalendarEventResolver {
         success: true,
         iCalUid: createdEvent.iCalUid || undefined,
         conferenceLink: createdEvent.conferenceLinkUrl || undefined,
-        calendarEventId: calendarEventId ?? undefined,
+        calendarEventId,
       };
     } catch (error) {
       if (error instanceof ForbiddenException) {

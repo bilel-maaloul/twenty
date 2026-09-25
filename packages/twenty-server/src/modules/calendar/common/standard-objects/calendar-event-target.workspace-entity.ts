@@ -3,6 +3,7 @@ import { type EntityRelation } from 'src/engine/workspace-manager/workspace-migr
 import { type CalendarEventWorkspaceEntity } from 'src/modules/calendar/common/standard-objects/calendar-event.workspace-entity';
 import { type CompanyWorkspaceEntity } from 'src/modules/company/standard-objects/company.workspace-entity';
 import { type OpportunityWorkspaceEntity } from 'src/modules/opportunity/standard-objects/opportunity.workspace-entity';
+import { type TaskWorkspaceEntity } from 'src/modules/task/standard-objects/task.workspace-entity';
 import { type PersonWorkspaceEntity } from 'src/modules/person/standard-objects/person.workspace-entity';
 
 export class CalendarEventTargetWorkspaceEntity extends BaseWorkspaceEntity {
@@ -16,4 +17,6 @@ export class CalendarEventTargetWorkspaceEntity extends BaseWorkspaceEntity {
   targetCompanyId: string | null;
   targetOpportunity: EntityRelation<OpportunityWorkspaceEntity> | null;
   targetOpportunityId: string | null;
+  targetTask: EntityRelation<TaskWorkspaceEntity> | null;
+  targetTaskId: string | null;
 }

@@ -7,8 +7,7 @@ import { SettingsSectionSkeletonLoader } from '@/settings/components/SettingsSec
 import { SettingsPageLayout } from '@/settings/components/layout/SettingsPageLayout';
 import { SettingsTabBar } from '@/settings/components/layout/SettingsTabBar';
 import { useLingui } from '@lingui/react/macro';
-import { useMemo } from 'react';
-import { CalendarChannelSyncStage, SettingsPath } from 'twenty-shared/types';
+import { SettingsPath } from 'twenty-shared/types';
 import { getSettingsPath } from 'twenty-shared/utils';
 import { Section } from 'twenty-ui/layout';
 
@@ -17,14 +16,7 @@ export const SettingsAccountsCalendars = () => {
 
   const { channels: allCalendarChannels, loading } = useMyCalendarChannels();
 
-  const calendarChannels = useMemo(
-    () =>
-      allCalendarChannels.filter(
-        (channel) =>
-          channel.syncStage !== CalendarChannelSyncStage.PENDING_CONFIGURATION,
-      ),
-    [allCalendarChannels],
-  );
+  const calendarChannels = allCalendarChannels;
 
   const tabs = calendarChannels.map((calendarChannel) => ({
     id: calendarChannel.id,
@@ -37,7 +29,14 @@ export const SettingsAccountsCalendars = () => {
     }
 
     if (calendarChannels.length === 0) {
-      return <SettingsNewAccountSection />;
+      return (
+        <SettingsNewAccountSection
+          apiOAuthOptions={{
+            redirectLocation: getSettingsPath(SettingsPath.AccountsCalendars),
+            skipMessageChannelConfiguration: true,
+          }}
+        />
+      );
     }
 
     return (

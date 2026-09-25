@@ -55,4 +55,33 @@ export const buildCalendarEventTargetStandardFlatFieldMetadatas = ({
       },
     },
   }),
+  targetTask: createStandardRelationFieldFlatMetadata({
+    ...args,
+    context: {
+      type: FieldMetadataType.MORPH_RELATION,
+      morphId:
+        STANDARD_OBJECTS.calendarEventTarget.morphIds.targetMorphId.morphId,
+      fieldName: 'targetTask',
+      label: i18nLabel(
+        msg({ message: `Task`, context: 'fieldMetadata.label' }),
+      ),
+      description: i18nLabel(
+        msg({
+          message: `Task related to this calendar event`,
+          context: 'fieldMetadata.description',
+        }),
+      ),
+      icon: 'IconCheckbox',
+      isNullable: true,
+      isUIEditable: false,
+      isSystemSideEffect: true,
+      targetObjectName: 'task',
+      targetFieldName: 'calendarEventTargets',
+      settings: {
+        relationType: RelationType.MANY_TO_ONE,
+        onDelete: RelationOnDeleteAction.CASCADE,
+        joinColumnName: 'targetTaskId',
+      },
+    },
+  }),
 });

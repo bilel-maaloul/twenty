@@ -25,6 +25,17 @@ export class CalendarSaveEventsService {
     calendarChannel: CalendarChannelEntity,
     connectedAccount: ConnectedAccountEntity,
     workspaceId: string,
+    calendarEventMetadata?: Partial<
+      Pick<
+        CalendarEventWorkspaceEntity,
+        | 'eventType'
+        | 'ownerId'
+        | 'reminderMinutesBefore'
+        | 'recurrenceFrequency'
+        | 'recurrenceEndDate'
+        | 'recurrenceOccurrences'
+      >
+    >,
   ): Promise<{ calendarEventIds: string[] }> {
     const authContext = buildSystemAuthContext(workspaceId);
 
@@ -54,6 +65,7 @@ export class CalendarSaveEventsService {
             fetchedCalendarEvents,
             existingAssociations,
             calendarChannelId: calendarChannel.id,
+            calendarEventMetadata,
           });
 
           const existingParticipants =

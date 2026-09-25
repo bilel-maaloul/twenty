@@ -52,13 +52,13 @@ export class CreateCalendarEventService {
   }
 
   // Persist the created event right away so it is immediately visible in Twenty.
-  // The next provider sync reconciles it via its external id, so a persistence
-  // failure here is non-fatal.
+  // A successful response must include the local id; otherwise the caller
+  // would report success for an event that cannot yet be read from Twenty.
   async persistCalendarEvent(
     createdEvent: FetchedCalendarEvent,
     data: ComposedCalendarEvent,
     workspaceId: string,
-  ): Promise<string | null> {
+  ): Promise<string> {
     try {
       const { calendarEventIds } =
         await this.calendarSaveEventsService.saveCalendarEventsAndEnqueueContactCreationJob(
@@ -66,15 +66,39 @@ export class CreateCalendarEventService {
           data.calendarChannel,
           data.connectedAccount,
           workspaceId,
+          {
+            eventType: data.input.eventType,
+            ownerId: data.input.ownerId,
+            reminderMinutesBefore: data.input.reminderMinutesBefore,
+            recurrenceFrequency: data.input.recurrenceFrequency,
+            recurrenceEndDate: data.input.recurrenceEndDate,
+            recurrenceOccurrences: data.input.recurrenceOccurrences,
+          },
         );
 
-      return calendarEventIds[0] ?? null;
+      const calendarEventId = calendarEventIds[0];
+
+      if (!calendarEventId) {
+        throw new Error(
+          'Calendar event persistence returned no calendar event id',
+        );
+      }
+
+      return calendarEventId;
     } catch (persistenceError) {
-      this.logger.warn(
-        `Failed to persist created calendar event (sync will recover): ${persistenceError}`,
+      const errorMessage =
+        persistenceError instanceof Error
+          ? persistenceError.message
+          : String(persistenceError);
+
+      this.logger.error(
+        `Failed to persist created calendar event: ${errorMessage}`,
       );
 
-      return null;
+      throw new CalendarEventCreationException(
+        `Failed to persist created calendar event: ${errorMessage}`,
+        CalendarEventCreationExceptionCode.PERSISTENCE_FAILED,
+      );
     }
   }
 }

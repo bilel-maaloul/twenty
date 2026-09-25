@@ -4,6 +4,11 @@ import { Temporal } from 'temporal-polyfill';
 import { useCalendarEventComposer } from '@/activities/calendar/hooks/useCalendarEventComposer';
 import { type ObjectRecord } from '@/object-record/types/ObjectRecord';
 
+jest.mock('transliteration', () => ({
+  slugify: (value: string) => value,
+  transliterate: (value: string) => value,
+}));
+
 const mockCreateCalendarEvent = jest.fn();
 const mockCreateCalendarEventTargets = jest.fn();
 const mockRefetchTimelineCalendarEvents = jest.fn();
@@ -217,7 +222,42 @@ describe('useCalendarEventComposer', () => {
       ],
     });
 
-    expect(mockRefetchTimelineCalendarEvents).toHaveBeenCalled();
+    expect(mockRefetchTimelineCalendarEvents).toHaveBeenCalledWith({
+      objectNameSingular: 'person',
+      recordId: 'person-id',
+    });
+  });
+
+  it('does not refetch a record timeline when opened from the global calendar', async () => {
+    mockCreateCalendarEvent.mockResolvedValue({
+      success: true,
+      calendarEventId: 'calendar-event-id',
+    });
+
+    const { result } = renderHook(() =>
+      useCalendarEventComposer({
+        initialValues: {
+          connectedAccountId: 'account-id',
+          contextRecord: {
+            objectNameSingular: 'calendarEvent',
+            recordId: '',
+          },
+          defaultAttendees: '',
+          timeZone: 'UTC',
+        },
+        onCreated: jest.fn(),
+      }),
+    );
+
+    act(() => {
+      result.current.setTitle('Planning session');
+    });
+
+    await act(async () => {
+      await result.current.handleCreate();
+    });
+
+    expect(mockRefetchTimelineCalendarEvents).not.toHaveBeenCalled();
   });
 
   it('drops a relation the user removed from the picker', () => {

@@ -4,9 +4,11 @@ import { FooterNote } from '@/auth/sign-in-up/components/FooterNote';
 import { WorkspaceSelectionFooter } from '@/auth/sign-in-up/components/WorkspaceSelectionFooter';
 import { SignInUpStep } from '@/auth/states/signInUpStepState';
 import { styled } from '@linaria/react';
+import { Trans } from '@lingui/react/macro';
 import { type JSX } from 'react';
 import { AppPath } from 'twenty-shared/types';
 import { AnimatedEaseIn } from 'twenty-ui/layout';
+import { ClickToActionLink } from 'twenty-ui/navigation';
 import { ModalContent } from 'twenty-ui/surfaces';
 import { themeCssVariables } from 'twenty-ui/theme-constants';
 import { type PublicWorkspaceData } from '~/generated-metadata/graphql';
@@ -24,6 +26,12 @@ const StyledFormContainer = styled.div`
   margin-top: ${themeCssVariables.spacing[6]};
   min-width: 0;
   width: 100%;
+`;
+
+const StyledStartOverContainer = styled.div`
+  display: flex;
+  justify-content: center;
+  margin-top: ${themeCssVariables.spacing[4]};
 `;
 
 type SignInUpStandardContentProps = {
@@ -55,6 +63,13 @@ export const SignInUpStandardContent = ({
         <Title animate>{title}</Title>
       </StyledTitleContainer>
       <StyledFormContainer>{signInUpForm}</StyledFormContainer>
+      {[SignInUpStep.Email, SignInUpStep.Password].includes(signInUpStep) && (
+        <StyledStartOverContainer>
+          <ClickToActionLink onClick={onClickOnLogo}>
+            <Trans>Back to sign in</Trans>
+          </ClickToActionLink>
+        </StyledStartOverContainer>
+      )}
       {signInUpStep === SignInUpStep.WorkspaceSelection && (
         <WorkspaceSelectionFooter />
       )}

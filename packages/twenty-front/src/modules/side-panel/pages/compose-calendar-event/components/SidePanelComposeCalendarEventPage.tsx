@@ -34,9 +34,14 @@ export const SidePanelComposeCalendarEventPage = () => {
   const { triggerApisOAuth } = useTriggerApisOAuth();
   const { enqueueErrorSnackBar } = useSnackBar();
 
+  const handleCreated = () => {
+    composeCalendarEventInitialValues?.onCreated?.();
+    goBackFromSidePanel();
+  };
+
   const composerState = useCalendarEventComposer({
     initialValues: composeCalendarEventInitialValues,
-    onCreated: goBackFromSidePanel,
+    onCreated: handleCreated,
   });
 
   useHotkeysOnFocusedElement({
@@ -47,7 +52,7 @@ export const SidePanelComposeCalendarEventPage = () => {
   });
 
   const handleAddAccount = () => {
-    closeSidePanelMenu();
+    void closeSidePanelMenu();
     navigateSettings(SettingsPath.NewAccount, undefined, undefined, {
       surface: 'main',
     });

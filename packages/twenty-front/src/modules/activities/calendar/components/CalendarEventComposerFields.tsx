@@ -12,6 +12,7 @@ import { getEmailRecipientKey } from '@/activities/emails/recipients/utils/getEm
 import { type EmailRecipientsByFieldId } from '@/activities/emails/recipients/utils/moveEmailRecipientsBetweenFields';
 import { FormDateFieldInput } from '@/object-record/record-field/ui/form-types/components/FormDateFieldInput';
 import { FormDateTimeFieldInput } from '@/object-record/record-field/ui/form-types/components/FormDateTimeFieldInput';
+import { FormSingleRecordPicker } from '@/object-record/record-field/ui/form-types/components/FormSingleRecordPicker';
 import { AVAILABLE_TIMEZONE_OPTIONS } from '@/settings/experience/constants/AvailableTimezoneOptions';
 import { Select } from '@/ui/input/components/Select';
 import { TextArea } from '@/ui/input/components/TextArea';
@@ -24,6 +25,7 @@ import { t } from '@lingui/core/macro';
 import { Callout } from 'twenty-ui/feedback';
 import { Switch } from 'twenty-ui/input';
 import { themeCssVariables } from 'twenty-ui/theme-constants';
+import { CoreObjectNameSingular } from 'twenty-shared/types';
 
 const COMPOSER_LABEL_MIN_WIDTH = '80px';
 
@@ -88,7 +90,33 @@ export const CalendarEventComposerFields = ({
     composerState.accountOptions.length === 0 ||
     composerState.missingScopes.length > 0 ||
     !composerState.hasValidDateRange ||
+    !composerState.hasValidRecurrence ||
     composerState.hasTooManyAttendees;
+
+  const eventTypeOptions = [
+    { label: t`Meeting`, value: 'MEETING' },
+    { label: t`Call`, value: 'CALL' },
+    { label: t`Task`, value: 'TASK' },
+    { label: t`Appointment`, value: 'APPOINTMENT' },
+    { label: t`Other`, value: 'OTHER' },
+  ];
+
+  const reminderOptions = [
+    { label: t`No reminder`, value: '' },
+    { label: t`At the time of the event`, value: '0' },
+    { label: t`5 minutes before`, value: '5' },
+    { label: t`15 minutes before`, value: '15' },
+    { label: t`30 minutes before`, value: '30' },
+    { label: t`1 hour before`, value: '60' },
+    { label: t`1 day before`, value: '1440' },
+  ];
+
+  const recurrenceOptions = [
+    { label: t`Does not repeat`, value: 'NONE' },
+    { label: t`Daily`, value: 'DAILY' },
+    { label: t`Weekly`, value: 'WEEKLY' },
+    { label: t`Monthly`, value: 'MONTHLY' },
+  ];
 
   return (
     <StyledFieldsContainer>
@@ -149,6 +177,33 @@ export const CalendarEventComposerFields = ({
                 aria-label={t`Title`}
                 placeholder={t`Add an event title`}
                 onChange={(event) => composerState.setTitle(event.target.value)}
+              />
+            </ComposerFieldRow>
+            <ComposerFieldRow
+              label={t`Type`}
+              labelMinWidth={COMPOSER_LABEL_MIN_WIDTH}
+            >
+              <Select
+                dropdownId="calendar-event-composer-type"
+                fullWidth
+                variant="transparent"
+                value={composerState.eventType}
+                options={eventTypeOptions}
+                onChange={composerState.setEventType}
+              />
+            </ComposerFieldRow>
+            <ComposerFieldRow
+              label={t`Owner`}
+              labelMinWidth={COMPOSER_LABEL_MIN_WIDTH}
+            >
+              <FormSingleRecordPicker
+                objectNameSingulars={[CoreObjectNameSingular.WorkspaceMember]}
+                defaultValue={composerState.ownerId}
+                onChange={(value) =>
+                  composerState.setOwnerId(
+                    typeof value === 'string' ? value : null,
+                  )
+                }
               />
             </ComposerFieldRow>
             <ComposerFieldRow
@@ -248,6 +303,78 @@ export const CalendarEventComposerFields = ({
               />
             </ComposerFieldRow>
             <ComposerFieldRow
+              label={t`Reminder`}
+              labelMinWidth={COMPOSER_LABEL_MIN_WIDTH}
+            >
+              <Select
+                dropdownId="calendar-event-composer-reminder"
+                fullWidth
+                variant="transparent"
+                value={
+                  composerState.reminderMinutesBefore === null
+                    ? ''
+                    : String(composerState.reminderMinutesBefore)
+                }
+                options={reminderOptions}
+                onChange={(value) =>
+                  composerState.setReminderMinutesBefore(
+                    value === '' ? null : Number(value),
+                  )
+                }
+              />
+            </ComposerFieldRow>
+            <ComposerFieldRow
+              label={t`Repeat`}
+              labelMinWidth={COMPOSER_LABEL_MIN_WIDTH}
+            >
+              <Select
+                dropdownId="calendar-event-composer-recurrence"
+                fullWidth
+                variant="transparent"
+                value={composerState.recurrenceFrequency}
+                options={recurrenceOptions}
+                onChange={(value) => {
+                  composerState.setRecurrenceFrequency(value);
+                  if (value === 'NONE') {
+                    composerState.setRecurrenceEndDate(null);
+                    composerState.setRecurrenceOccurrences(null);
+                  }
+                }}
+              />
+            </ComposerFieldRow>
+            {composerState.recurrenceFrequency !== 'NONE' && (
+              <>
+                <ComposerFieldRow
+                  label={t`Repeat until`}
+                  labelMinWidth={COMPOSER_LABEL_MIN_WIDTH}
+                >
+                  <FormDateFieldInput
+                    variant="transparent"
+                    defaultValue={composerState.recurrenceEndDate ?? undefined}
+                    onChange={composerState.setRecurrenceEndDate}
+                  />
+                </ComposerFieldRow>
+                <ComposerFieldRow
+                  label={t`Occurrences`}
+                  labelMinWidth={COMPOSER_LABEL_MIN_WIDTH}
+                >
+                  <StyledComposerTextInput
+                    type="number"
+                    min={1}
+                    aria-label={t`Occurrences`}
+                    placeholder={t`Optional count`}
+                    value={composerState.recurrenceOccurrences ?? ''}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      composerState.setRecurrenceOccurrences(
+                        value === '' ? null : Number(value),
+                      );
+                    }}
+                  />
+                </ComposerFieldRow>
+              </>
+            )}
+            <ComposerFieldRow
               label={t`Invitations`}
               labelMinWidth={COMPOSER_LABEL_MIN_WIDTH}
               onClick={() =>
@@ -330,6 +457,13 @@ export const CalendarEventComposerFields = ({
                   ? t`The end date must be later than the start date.`
                   : t`The end time must be after the start time.`
               }
+            />
+          )}
+          {!composerState.hasValidRecurrence && (
+            <Callout
+              variant="warning"
+              title={t`Complete the recurrence`}
+              description={t`Choose an end date or a positive occurrence count for recurring events.`}
             />
           )}
           {composerState.hasTooManyAttendees && (

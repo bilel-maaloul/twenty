@@ -1,10 +1,12 @@
 import { useSignInUp } from '@/auth/sign-in-up/hooks/useSignInUp';
 import { useSignInUpForm } from '@/auth/sign-in-up/hooks/useSignInUpForm';
 import { isCreatingWorkspaceState } from '@/auth/states/isCreatingWorkspaceState';
+import { signInUpModeState } from '@/auth/states/signInUpModeState';
 import {
   SignInUpStep,
   signInUpStepState,
 } from '@/auth/states/signInUpStepState';
+import { SignInUpMode } from '@/auth/types/signInUpMode';
 import { workspacePublicDataState } from '@/auth/states/workspacePublicDataState';
 import { styled } from '@linaria/react';
 
@@ -65,6 +67,7 @@ export const SignInUp = () => {
 
   const { form } = useSignInUpForm();
   const { signInUpStep } = useSignInUp(form);
+  const setSignInUpMode = useSetAtomState(signInUpModeState);
   const { isDefaultDomain } = useIsCurrentLocationOnDefaultDomain();
   const { isOnAWorkspace } = useIsCurrentLocationOnAWorkspace();
   const workspacePublicData = useAtomStateValue(workspacePublicDataState);
@@ -79,6 +82,8 @@ export const SignInUp = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const onClickOnLogo = () => {
+    form.reset();
+    setSignInUpMode(SignInUpMode.SignIn);
     setSignInUpStep(SignInUpStep.Init);
   };
 
