@@ -6,4 +6,5 @@ export type WorkspaceAgnosticTokenJwtPayload = CommonPropertiesJwtPayload & {
   type: JwtTokenTypeEnum.WORKSPACE_AGNOSTIC;
   userId: string;
   authProvider: AuthProviderEnum;
+  credentialEpoch?: number;
 };

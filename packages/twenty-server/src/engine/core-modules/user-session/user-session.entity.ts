@@ -69,6 +69,9 @@ export class UserSessionEntity {
   @Column({ type: 'text' })
   authProvider: AuthProviderEnum;
 
+  @Column({ type: 'integer', default: 0 })
+  credentialEpoch: number;
+
   @Column({ type: 'boolean', default: false })
   isImpersonating: boolean;
 

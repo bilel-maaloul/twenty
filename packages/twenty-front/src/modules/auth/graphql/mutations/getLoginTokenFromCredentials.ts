@@ -13,6 +13,7 @@ export const GET_LOGIN_TOKEN_FROM_CREDENTIALS = gql`
       captchaToken: $captchaToken
       origin: $origin
     ) {
+      requiresFirstPasswordCreation
       loginToken {
         ...AuthTokenFragment
       }

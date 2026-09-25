@@ -34,6 +34,7 @@ export type CalendarPageCalendarEvent = {
     targetTask?: { id: string } | null;
   }>;
   eventType?: string | null;
+  endsAt?: string | null;
   id: string;
   isCanceled: boolean;
   isFullDay: boolean;
@@ -496,10 +497,25 @@ const getCalendarEventDateKey = (
 const getCalendarEventTimeLabel = (
   calendarEvent: CalendarPageCalendarEvent,
   userTimezone: string,
-) =>
-  calendarEvent.isFullDay
-    ? t`All day`
-    : formatToHumanReadableTime(calendarEvent.startsAt, userTimezone);
+) => {
+  if (calendarEvent.isFullDay) {
+    return t`All day`;
+  }
+
+  const startTimeLabel = formatToHumanReadableTime(
+    calendarEvent.startsAt,
+    userTimezone,
+  );
+
+  if (!calendarEvent.endsAt) {
+    return startTimeLabel;
+  }
+
+  return `${startTimeLabel} → ${formatToHumanReadableTime(
+    calendarEvent.endsAt,
+    userTimezone,
+  )}`;
+};
 
 export const CalendarMonthGrid = ({
   calendarEvents,

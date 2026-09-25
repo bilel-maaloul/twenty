@@ -16,6 +16,7 @@ type MemberInfosTabProps = {
   onNameChange: (firstName: string, lastName: string) => void;
   onImpersonate?: () => void;
   onDelete: () => void;
+  onResendTemporaryPassword?: () => void;
 };
 
 const StyledNameRow = styled.div`
@@ -34,6 +35,7 @@ export const MemberInfosTab = ({
   onNameChange,
   onImpersonate,
   onDelete,
+  onResendTemporaryPassword,
 }: MemberInfosTabProps) => {
   const [firstName, setFirstName] = useState(member.name.firstName);
   const [lastName, setLastName] = useState(member.name.lastName);
@@ -95,6 +97,14 @@ export const MemberInfosTab = ({
               variant="secondary"
               size="small"
               onClick={onImpersonate}
+            />
+          )}
+          {onResendTemporaryPassword && (
+            <Button
+              title={t`Resend temporary password`}
+              variant="secondary"
+              size="small"
+              onClick={onResendTemporaryPassword}
             />
           )}
           <Button

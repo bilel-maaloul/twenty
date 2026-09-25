@@ -65,6 +65,8 @@ import { getWorkspaceUrl } from '~/utils/getWorkspaceUrl';
 import { isGraphqlErrorOfType } from '~/utils/is-graphql-error-of-type.util';
 import { useStore } from 'jotai';
 
+type CredentialSignInOutcome = 'normal' | 'first-password-required';
+
 export const useAuth = () => {
   const store = useStore();
   const markSessionActive = useMarkSessionActive();
@@ -351,27 +353,44 @@ export const useAuth = () => {
   );
 
   const handleCredentialsSignIn = useCallback(
-    async (email: string, password: string, captchaToken?: string) => {
-      await signIn({
-        variables: { email, password, captchaToken },
-        onCompleted: async () => {
-          markSessionActive();
-          const { user } = await loadCurrentUser();
+    async (
+      email: string,
+      password: string,
+      captchaToken?: string,
+    ): Promise<CredentialSignInOutcome> => {
+      try {
+        const result = await signIn({
+          variables: { email, password, captchaToken },
+        });
 
-          await navigateAfterMultiWorkspaceSignInUp(
-            user.availableWorkspaces,
-            user.email,
-          );
-        },
-        onError: (error) => {
-          if (isGraphqlErrorOfType(error, 'EMAIL_NOT_VERIFIED')) {
-            setSearchParams({ email });
-            setSignInUpStep(SignInUpStep.EmailVerification);
-            throw error;
-          }
-          throw error;
-        },
-      });
+        if (isDefined(result.error)) {
+          throw result.error;
+        }
+
+        if (!result.data?.signIn) {
+          throw new Error('No signIn result');
+        }
+
+        if (result.data.signIn.requiresFirstPasswordCreation) {
+          navigate(AppPath.CreateFirstPassword);
+          return 'first-password-required';
+        }
+
+        markSessionActive();
+        const { user } = await loadCurrentUser();
+
+        await navigateAfterMultiWorkspaceSignInUp(
+          user.availableWorkspaces,
+          user.email,
+        );
+        return 'normal';
+      } catch (error) {
+        if (isGraphqlErrorOfType(error, 'EMAIL_NOT_VERIFIED')) {
+          setSearchParams({ email });
+          setSignInUpStep(SignInUpStep.EmailVerification);
+        }
+        throw error;
+      }
     },
     [
       markSessionActive,
@@ -380,6 +399,7 @@ export const useAuth = () => {
       setSearchParams,
       setSignInUpStep,
       navigateAfterMultiWorkspaceSignInUp,
+      navigate,
     ],
   );
 
@@ -429,15 +449,31 @@ export const useAuth = () => {
   );
 
   const handleCredentialsSignInInWorkspace = useCallback(
-    async (email: string, password: string, captchaToken?: string) => {
-      const { loginToken } = await handleGetLoginTokenFromCredentials(
+    async (
+      email: string,
+      password: string,
+      captchaToken?: string,
+    ): Promise<CredentialSignInOutcome> => {
+      const result = await handleGetLoginTokenFromCredentials(
         email,
         password,
         captchaToken,
       );
-      await handleGetAuthTokensFromLoginToken(loginToken.token);
+      if (result.requiresFirstPasswordCreation) {
+        navigate(AppPath.CreateFirstPassword);
+        return 'first-password-required';
+      }
+      if (!result.loginToken) {
+        throw new Error('No login token');
+      }
+      await handleGetAuthTokensFromLoginToken(result.loginToken.token);
+      return 'normal';
     },
-    [handleGetLoginTokenFromCredentials, handleGetAuthTokensFromLoginToken],
+    [
+      handleGetLoginTokenFromCredentials,
+      handleGetAuthTokensFromLoginToken,
+      navigate,
+    ],
   );
 
   const handleSignOut = useCallback(async () => {

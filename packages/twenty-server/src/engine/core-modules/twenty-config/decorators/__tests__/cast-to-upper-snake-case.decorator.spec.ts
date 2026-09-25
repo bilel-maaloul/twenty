@@ -81,4 +81,13 @@ describe('CastToUpperSnakeCase Decorator', () => {
 
     expect(result.value).toBe('COMPLEX_MIXED_FORMAT_TEST_123');
   });
+
+  it.each(['GOOGLE_RECAPTCHA_V_2_CHECKBOX', 'GOOGLE_RECAPTCHA_V2_CHECKBOX'])(
+    'normalizes the v2 CAPTCHA driver value: %s',
+    (value) => {
+      const result = plainToClass(TestClass, { value });
+
+      expect(result.value).toBe('GOOGLE_RECAPTCHA_V_2_CHECKBOX');
+    },
+  );
 });

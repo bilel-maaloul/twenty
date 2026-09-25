@@ -14,6 +14,8 @@ export const getCaptchaUrlByProvider = (
         );
       }
       return `https://www.google.com/recaptcha/api.js?render=${siteKey}`;
+    case CaptchaDriverType.GOOGLE_RECAPTCHA_V_2_CHECKBOX:
+      return 'https://www.google.com/recaptcha/api.js?render=explicit';
     case CaptchaDriverType.TURNSTILE:
       return 'https://challenges.cloudflare.com/turnstile/v0/api.js';
     default:

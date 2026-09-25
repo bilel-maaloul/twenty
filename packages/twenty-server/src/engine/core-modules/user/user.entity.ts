@@ -68,6 +68,15 @@ export class UserEntity {
   @Column({ nullable: true })
   passwordHash: string;
 
+  @Column({ type: 'boolean', default: false })
+  mustChangePassword: boolean;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  temporaryPasswordExpiresAt: Date | null;
+
+  @Column({ type: 'integer', default: 0 })
+  credentialEpoch: number;
+
   @Field()
   @Column({ default: false })
   canImpersonate: boolean;

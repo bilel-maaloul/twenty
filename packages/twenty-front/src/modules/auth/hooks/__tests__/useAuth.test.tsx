@@ -15,6 +15,7 @@ import {
   type CurrentUser,
   currentUserState,
 } from '@/auth/states/currentUserState';
+import { isCookieAuthActiveState } from '@/auth/states/isCookieAuthActiveState';
 import {
   type CurrentWorkspace,
   currentWorkspaceState,
@@ -26,6 +27,33 @@ import { getDefaultStore } from 'jotai';
 import { WorkspaceActivationStatus } from 'twenty-shared/workspace';
 
 const redirectSpy = jest.fn();
+const navigateSpy = jest.fn();
+const mockLoadCurrentUser = jest.fn().mockResolvedValue({
+  user: {
+    email,
+    availableWorkspaces: {
+      availableWorkspacesForSignIn: [
+        {
+          workspaceUrls: {
+            subdomainUrl: 'https://workspace.example.com',
+            customUrl: null,
+          },
+          loginToken: null,
+        },
+      ],
+      availableWorkspacesForSignUp: [],
+    },
+  },
+});
+
+jest.mock('@/users/hooks/useLoadCurrentUser', () => ({
+  useLoadCurrentUser: () => ({ loadCurrentUser: mockLoadCurrentUser }),
+}));
+
+jest.mock('react-router-dom', () => ({
+  ...jest.requireActual('react-router-dom'),
+  useNavigate: () => navigateSpy,
+}));
 
 jest.mock('@/domain-manager/hooks/useRedirect', () => ({
   useRedirect: jest.fn().mockImplementation(() => ({
@@ -97,6 +125,7 @@ describe('useAuth', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     getDefaultStore().set(returnToPathState.atom, '');
+    getDefaultStore().set(isCookieAuthActiveState.atom, false);
   });
 
   it('should return login token object', async () => {
@@ -119,7 +148,7 @@ describe('useAuth', () => {
     });
 
     expect(mocks.getAuthTokensFromLoginToken.result).toHaveBeenCalled();
-    expect(mocks.getCurrentUser.result).toHaveBeenCalled();
+    expect(mockLoadCurrentUser).toHaveBeenCalled();
   });
 
   it('should handle credential sign-in', async () => {
@@ -131,6 +160,70 @@ describe('useAuth', () => {
 
     expect(mocks.getLoginTokenFromCredentials.result).toHaveBeenCalled();
     expect(mocks.getAuthTokensFromLoginToken.result).toHaveBeenCalled();
+  });
+
+  it('keeps normal global sign-in behavior', async () => {
+    const { result } = renderHooks();
+
+    await act(async () => {
+      expect(await result.current.signInWithCredentials(email, password)).toBe(
+        'normal',
+      );
+    });
+
+    expect(mocks.signIn.result).toHaveBeenCalled();
+    expect(mockLoadCurrentUser).toHaveBeenCalled();
+    expect(getDefaultStore().get(isCookieAuthActiveState.atom)).toBe(true);
+    expect(navigateSpy).not.toHaveBeenCalledWith('/create-first-password');
+  });
+
+  it('routes restricted workspace sign-in before token exchange', async () => {
+    mocks.getLoginTokenFromCredentials.result.mockImplementationOnce(() => ({
+      data: {
+        getLoginTokenFromCredentials: {
+          __typename: 'LoginToken',
+          requiresFirstPasswordCreation: true,
+          loginToken: null,
+        },
+      },
+    }));
+    const { result } = renderHooks();
+
+    await act(async () => {
+      expect(
+        await result.current.signInWithCredentialsInWorkspace(email, password),
+      ).toBe('first-password-required');
+    });
+
+    expect(navigateSpy).toHaveBeenCalledWith('/create-first-password');
+    expect(mocks.getAuthTokensFromLoginToken.result).not.toHaveBeenCalled();
+    expect(mockLoadCurrentUser).not.toHaveBeenCalled();
+    expect(getDefaultStore().get(isCookieAuthActiveState.atom)).toBe(false);
+  });
+
+  it('routes restricted global sign-in before loading user state', async () => {
+    mocks.signIn.result.mockImplementationOnce(() => ({
+      data: {
+        signIn: {
+          __typename: 'AvailableWorkspacesAndAccessTokens',
+          requiresFirstPasswordCreation: true,
+          availableWorkspaces: null,
+          tokens: null,
+        },
+      },
+    }));
+    const { result } = renderHooks();
+
+    await act(async () => {
+      expect(await result.current.signInWithCredentials(email, password)).toBe(
+        'first-password-required',
+      );
+    });
+
+    expect(navigateSpy).toHaveBeenCalledWith('/create-first-password');
+    expect(mockLoadCurrentUser).not.toHaveBeenCalled();
+    expect(mocks.getAuthTokensFromLoginToken.result).not.toHaveBeenCalled();
+    expect(getDefaultStore().get(isCookieAuthActiveState.atom)).toBe(false);
   });
 
   it('should handle google sign-in', async () => {

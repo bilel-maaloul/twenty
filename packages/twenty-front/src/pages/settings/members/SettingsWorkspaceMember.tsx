@@ -18,10 +18,12 @@ import { t } from '@lingui/core/macro';
 import { CoreObjectNameSingular, SettingsPath } from 'twenty-shared/types';
 import { getSettingsPath, isDefined } from 'twenty-shared/utils';
 import { IconInfoCircle, IconLock } from 'twenty-ui/icon';
+import { ResendTemporaryPasswordStatus } from '~/generated-metadata/graphql';
 import { useNavigateSettings } from '~/hooks/useNavigateSettings';
 
 import { currentUserState } from '@/auth/states/currentUserState';
 import { currentWorkspaceState } from '@/auth/states/currentWorkspaceState';
+import { useResendTemporaryPassword } from '@/workspace-member/hooks/useResendTemporaryPassword';
 import { isImpersonatingState } from '@/auth/states/isImpersonatingState';
 import { useUpdateOneRecord } from '@/object-record/hooks/useUpdateOneRecord';
 import { MemberInfosTab } from '@/settings/members/components/MemberInfosTab';
@@ -44,6 +46,8 @@ const SETTINGS_WORKSPACE_MEMBER_TABS = {
 };
 
 const DELETE_MEMBER_MODAL_ID = 'workspace-member-delete-modal';
+const RESEND_TEMPORARY_PASSWORD_MODAL_ID =
+  'workspace-member-resend-temporary-password-modal';
 
 export const SettingsWorkspaceMember = () => {
   const { workspaceMemberId = '' } = useParams();
@@ -57,6 +61,11 @@ export const SettingsWorkspaceMember = () => {
   const isImpersonating = useAtomStateValue(isImpersonatingState);
   const canImpersonate =
     useHasPermissionFlag(PermissionFlagType.IMPERSONATE) && !isImpersonating;
+  const canManageWorkspaceMembers = useHasPermissionFlag(
+    PermissionFlagType.WORKSPACE_MEMBERS,
+  );
+  const { resendTemporaryPassword, loading: isResendingTemporaryPassword } =
+    useResendTemporaryPassword();
 
   const {
     roles,
@@ -132,6 +141,42 @@ export const SettingsWorkspaceMember = () => {
           error instanceof Error
             ? error.message
             : t`Unable to delete member right now`,
+      });
+    }
+  };
+
+  const handleResendTemporaryPassword = async () => {
+    if (!member?.id) return;
+
+    try {
+      const { data } = await resendTemporaryPassword(member.id);
+
+      switch (data?.resendTemporaryPassword.status) {
+        case ResendTemporaryPasswordStatus.SENT:
+          enqueueSuccessSnackBar({
+            message: t`Temporary sign-in instructions were sent by email.`,
+          });
+          return;
+        case ResendTemporaryPasswordStatus.DELIVERY_UNAVAILABLE:
+          enqueueErrorSnackBar({
+            message: t`Email delivery is unavailable. No credential was changed.`,
+          });
+          return;
+        case ResendTemporaryPasswordStatus.UNAVAILABLE:
+          enqueueErrorSnackBar({
+            message: t`Temporary-password resend is unavailable for this member.`,
+          });
+          return;
+        case ResendTemporaryPasswordStatus.REVIEW_REQUIRED:
+        default:
+          enqueueErrorSnackBar({
+            message: t`The operation needs review before it can be retried.`,
+          });
+          return;
+      }
+    } catch {
+      enqueueErrorSnackBar({
+        message: t`Unable to resend sign-in instructions right now.`,
       });
     }
   };
@@ -226,6 +271,11 @@ export const SettingsWorkspaceMember = () => {
                 }
                 onNameChange={debouncedUpdateName}
                 onDelete={() => openModal(DELETE_MEMBER_MODAL_ID)}
+                onResendTemporaryPassword={
+                  canManageWorkspaceMembers
+                    ? () => openModal(RESEND_TEMPORARY_PASSWORD_MODAL_ID)
+                    : undefined
+                }
               />
             )}
 
@@ -246,6 +296,15 @@ export const SettingsWorkspaceMember = () => {
             onConfirmClick={handleDeleteMember}
             confirmButtonText={t`Remove member`}
             loading={isDeleting}
+          />
+          <ConfirmationModal
+            modalInstanceId={RESEND_TEMPORARY_PASSWORD_MODAL_ID}
+            title={t`Resend temporary password?`}
+            subtitle={t`A new temporary password will replace the previous temporary password and be sent by email. The password will not be shown here.`}
+            onConfirmClick={handleResendTemporaryPassword}
+            confirmButtonText={t`Resend instructions`}
+            confirmButtonAccent="blue"
+            loading={isResendingTemporaryPassword}
           />
         </SettingsPageLayout>
       )}

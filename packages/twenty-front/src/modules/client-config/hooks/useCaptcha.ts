@@ -5,6 +5,7 @@ import { clientConfigApiStatusState } from '@/client-config/states/clientConfigA
 import { useAtomStateValue } from '@/ui/utilities/state/jotai/hooks/useAtomStateValue';
 import { isDefined } from 'twenty-shared/utils';
 import { isUndefinedOrNull } from '~/utils/isUndefinedOrNull';
+import { CaptchaDriverType } from '~/generated-metadata/graphql';
 
 export const useCaptcha = () => {
   const captcha = useAtomStateValue(captchaState);
@@ -27,5 +28,7 @@ export const useCaptcha = () => {
     isCaptchaScriptLoaded,
     isCaptchaConfigured: !isUndefinedOrNull(captcha),
     isCaptchaReady,
+    isV2Checkbox:
+      captcha?.provider === CaptchaDriverType.GOOGLE_RECAPTCHA_V_2_CHECKBOX,
   };
 };

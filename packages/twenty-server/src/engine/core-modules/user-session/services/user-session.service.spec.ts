@@ -47,6 +47,7 @@ describe('UserSessionService.issueSessionForTokenPair', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    userSessionCookieService.extractSessionTokenFromRequest.mockReset();
   });
 
   it('preserves the presented session when replacement creation fails', async () => {
@@ -84,5 +85,30 @@ describe('UserSessionService.issueSessionForTokenPair', () => {
     ).rejects.toThrow('Cannot issue a user session without an HTTP response');
 
     expect(userSessionRepository.save).not.toHaveBeenCalled();
+  });
+
+  it('stores the credential epoch from the user access token in the session', async () => {
+    jwtWrapperService.decode.mockReturnValueOnce({
+      type: JwtTokenTypeEnum.ACCESS,
+      userId: 'user-id',
+      workspaceId: 'workspace-id',
+      userWorkspaceId: 'user-workspace-id',
+      authProvider: AuthProviderEnum.Password,
+      credentialEpoch: 2,
+    });
+    userSessionRepository.save.mockImplementationOnce(async (session) => ({
+      ...session,
+      id: 'session-id',
+    }));
+
+    await service.issueSessionForTokenPair({
+      tokenPair,
+      request: { headers: {}, ip: '127.0.0.1', res: {} } as never,
+      origin: 'renewal_bridge',
+    });
+
+    expect(userSessionRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ credentialEpoch: 2 }),
+    );
   });
 });

@@ -21,6 +21,10 @@ import { CreateCalendarChannelService } from 'src/engine/core-modules/auth/servi
 import { CreateConnectedAccountService } from 'src/engine/core-modules/auth/services/create-connected-account.service';
 import { CreateMessageChannelService } from 'src/engine/core-modules/auth/services/create-message-channel.service';
 import { CreateSsoConnectedAccountService } from 'src/engine/core-modules/auth/services/create-sso-connected-account.service';
+import { TemporaryPasswordProvisioningService } from 'src/engine/core-modules/auth/services/temporary-password-provisioning.service';
+import { FirstPasswordCookieModule } from 'src/engine/core-modules/auth/services/first-password-cookie.module';
+import { FirstPasswordCreationService } from 'src/engine/core-modules/auth/services/first-password-creation.service';
+import { WorkspaceMemberProvisioningResolver } from 'src/engine/core-modules/auth/workspace-member-provisioning.resolver';
 import { GoogleApiScopesService } from 'src/engine/core-modules/auth/services/google-apis-scopes';
 import { GoogleApisServiceAvailabilityService } from 'src/engine/core-modules/auth/services/google-apis-service-availability.service';
 import { GoogleAPIsService } from 'src/engine/core-modules/auth/services/google-apis.service';
@@ -69,6 +73,7 @@ import { ConnectedAccountTokenEncryptionModule } from 'src/engine/metadata-modul
 import { MessageChannelEntity } from 'src/engine/metadata-modules/message-channel/entities/message-channel.entity';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { PermissionsModule } from 'src/engine/metadata-modules/permissions/permissions.module';
+import { RoleValidationModule } from 'src/engine/metadata-modules/role-validation/role-validation.module';
 import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache.module';
 import { CalendarChannelSyncStatusService } from 'src/modules/calendar/common/services/calendar-channel-sync-status.service';
 import { ConnectedAccountModule } from 'src/modules/connected-account/connected-account.module';
@@ -118,6 +123,7 @@ import { JwtAuthStrategy } from './strategies/jwt.auth.strategy';
     ImpersonationAuthorizationModule,
     MetricsModule,
     PermissionsModule,
+    RoleValidationModule,
     TwoFactorAuthenticationModule,
     ApiKeyModule,
     EventLogEmitterModule,
@@ -136,6 +142,7 @@ import { JwtAuthStrategy } from './strategies/jwt.auth.strategy';
     ConnectedAccountTokenEncryptionModule,
     EmailAliasManagerModule,
     UserSessionModule,
+    FirstPasswordCookieModule,
   ],
   controllers: [
     GoogleAuthController,
@@ -149,9 +156,12 @@ import { JwtAuthStrategy } from './strategies/jwt.auth.strategy';
   providers: [
     SignInUpService,
     AuthService,
+    TemporaryPasswordProvisioningService,
+    FirstPasswordCreationService,
     JwtAuthStrategy,
     SamlAuthStrategy,
     AuthResolver,
+    WorkspaceMemberProvisioningResolver,
     GoogleAPIsService,
     GoogleApiScopesService,
     GoogleApisServiceAvailabilityService,

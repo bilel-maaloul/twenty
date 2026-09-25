@@ -3,17 +3,12 @@ import { SignInUpWithCredentials } from '@/auth/sign-in-up/components/internal/S
 import { SignInUpWithGoogle } from '@/auth/sign-in-up/components/internal/SignInUpWithGoogle';
 import { SignInUpWithMicrosoft } from '@/auth/sign-in-up/components/internal/SignInUpWithMicrosoft';
 import { SignInUpWithSso } from '@/auth/sign-in-up/components/internal/SignInUpWithSso';
-import { useHandleResetPassword } from '@/auth/sign-in-up/hooks/useHandleResetPassword';
-import { useSignInUp } from '@/auth/sign-in-up/hooks/useSignInUp';
 import { useSignInUpForm } from '@/auth/sign-in-up/hooks/useSignInUpForm';
 import { useWorkspaceBypass } from '@/auth/sign-in-up/hooks/useWorkspaceBypass';
-import { SignInUpStep } from '@/auth/states/signInUpStepState';
 import { workspaceAuthBypassProvidersState } from '@/workspace/states/workspaceAuthBypassProvidersState';
 import { workspaceAuthProvidersState } from '@/workspace/states/workspaceAuthProvidersState';
-import { Trans } from '@lingui/react/macro';
 import { FormProvider } from 'react-hook-form';
 import { HorizontalSeparator } from 'twenty-ui/layout';
-import { ClickToActionLink } from 'twenty-ui/navigation';
 import { useAtomStateValue } from '@/ui/utilities/state/jotai/hooks/useAtomStateValue';
 
 export const SignInUpWorkspaceScopeForm = () => {
@@ -24,10 +19,6 @@ export const SignInUpWorkspaceScopeForm = () => {
   const { shouldOfferBypass, shouldUseBypass } = useWorkspaceBypass();
 
   const { form } = useSignInUpForm();
-
-  const { handleResetPassword } = useHandleResetPassword();
-
-  const { signInUpStep } = useSignInUp(form);
 
   if (!workspaceAuthProviders) {
     return null;
@@ -65,13 +56,6 @@ export const SignInUpWorkspaceScopeForm = () => {
           </FormProvider>
         )}
       </StyledOnboardingContentContainer>
-      {signInUpStep === SignInUpStep.Password && (
-        <ClickToActionLink
-          onClick={handleResetPassword(form.getValues('email'))}
-        >
-          <Trans>Forgot your password?</Trans>
-        </ClickToActionLink>
-      )}
     </>
   );
 };

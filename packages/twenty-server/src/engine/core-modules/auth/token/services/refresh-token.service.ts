@@ -15,6 +15,10 @@ import {
 } from 'src/engine/core-modules/auth/auth.exception';
 import { type AuthToken } from 'src/engine/core-modules/auth/dto/auth-token.dto';
 import { type RefreshTokenJwtPayload } from 'src/engine/core-modules/auth/types/refresh-token-jwt-payload.type';
+import {
+  assertUserCanAuthenticate,
+  assertUserCredentialIsValid,
+} from 'src/engine/core-modules/auth/utils/assert-user-credential-is-valid.util';
 import { JwtTokenTypeEnum } from 'src/engine/core-modules/auth/types/jwt-token-type.enum';
 import { JwtWrapperService } from 'src/engine/core-modules/jwt/services/jwt-wrapper.service';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
@@ -56,6 +60,7 @@ export class RefreshTokenService {
 
     const token = await this.appTokenRepository.findOneBy({
       id: jwtPayload.jti,
+      type: AppTokenType.RefreshToken,
     });
 
     if (!token) {
@@ -75,6 +80,8 @@ export class RefreshTokenService {
         AuthExceptionCode.INVALID_INPUT,
       );
     }
+
+    assertUserCredentialIsValid(user, jwtPayload.credentialEpoch);
 
     if (token.revokedAt) {
       const wasRevokedBeforeGracePeriod =
@@ -107,7 +114,10 @@ export class RefreshTokenService {
   }
 
   async generateRefreshToken(
-    payload: Omit<RefreshTokenJwtPayload, 'type' | 'sub' | 'jti'>,
+    payload: Omit<
+      RefreshTokenJwtPayload,
+      'type' | 'sub' | 'jti' | 'credentialEpoch'
+    >,
     isImpersonationToken: boolean = false,
   ): Promise<AuthToken> {
     const expiresIn = isImpersonationToken
@@ -123,6 +133,17 @@ export class RefreshTokenService {
 
     const expiresAt = addMilliseconds(new Date().getTime(), ms(expiresIn));
 
+    const user = await this.userRepository.findOneBy({ id: payload.userId });
+
+    if (!user) {
+      throw new AuthException(
+        'User not found',
+        AuthExceptionCode.USER_NOT_FOUND,
+      );
+    }
+
+    assertUserCanAuthenticate(user);
+
     const refreshToken = this.appTokenRepository.create({
       ...payload,
       expiresAt,
@@ -135,6 +156,7 @@ export class RefreshTokenService {
       ...payload,
       sub: payload.userId,
       type: JwtTokenTypeEnum.REFRESH,
+      credentialEpoch: user.credentialEpoch,
     };
 
     const token = await this.jwtWrapperService.signAsyncOrThrow(jwtPayload, {

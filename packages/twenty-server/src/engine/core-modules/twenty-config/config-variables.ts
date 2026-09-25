@@ -140,6 +140,26 @@ export class ConfigVariables {
   PASSWORD_RESET_TOKEN_EXPIRES_IN = '5m';
 
   @ConfigVariablesMetadata({
+    group: ConfigVariablesGroup.TOKENS_DURATION,
+    description:
+      'Duration for which an administrator-issued temporary password is valid',
+    type: ConfigVariableType.STRING,
+  })
+  @IsPositiveDuration()
+  @IsOptional()
+  TEMPORARY_PASSWORD_EXPIRES_IN = '24h';
+
+  @ConfigVariablesMetadata({
+    group: ConfigVariablesGroup.TOKENS_DURATION,
+    description:
+      'Duration for which a first-password creation capability is valid',
+    type: ConfigVariableType.STRING,
+  })
+  @IsPositiveDuration()
+  @IsOptional()
+  FIRST_PASSWORD_CREATION_EXPIRES_IN = '5m';
+
+  @ConfigVariablesMetadata({
     group: ConfigVariablesGroup.GOOGLE_AUTH,
     description: 'Enable or disable the Google Calendar integration',
     type: ConfigVariableType.BOOLEAN,

@@ -3,6 +3,7 @@ import { type UserEntity } from 'src/engine/core-modules/user/user.entity';
 export const USER_ENTITY_NON_CACHED_PROPERTIES = [
   'formatEmail',
   'passwordHash',
+  'temporaryPasswordExpiresAt',
   'appTokens',
   'keyValuePairs',
   'workspaceMember',

@@ -24,6 +24,7 @@ import { McpMethodGuardMiddleware } from 'src/engine/api/mcp/middlewares/mcp-met
 import { McpModule } from 'src/engine/api/mcp/mcp.module';
 import { RestApiModule } from 'src/engine/api/rest/rest-api.module';
 import { WorkspaceAuthContextMiddleware } from 'src/engine/core-modules/auth/middlewares/workspace-auth-context.middleware';
+import { FirstPasswordCookieModule } from 'src/engine/core-modules/auth/services/first-password-cookie.module';
 import { MetricsModule } from 'src/engine/core-modules/metrics/metrics.module';
 import { DataloaderModule } from 'src/engine/dataloaders/dataloader.module';
 import { WorkspaceMetadataVersionModule } from 'src/engine/metadata-modules/workspace-metadata-version/workspace-metadata-version.module';
@@ -72,6 +73,7 @@ const MIGRATED_REST_METHODS = [
     RestApiModule,
     McpModule,
     MiddlewareModule,
+    FirstPasswordCookieModule,
     JwtModule,
     UserSessionModule,
     WorkspaceMetadataVersionModule,

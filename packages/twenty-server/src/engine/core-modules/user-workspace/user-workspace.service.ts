@@ -37,6 +37,7 @@ import {
   PermissionsExceptionMessage,
 } from 'src/engine/metadata-modules/permissions/permissions.exception';
 import { RoleTargetEntity } from 'src/engine/metadata-modules/role-target/role-target.entity';
+import { type RoleEntity } from 'src/engine/metadata-modules/role/role.entity';
 import { InjectWorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/inject-workspace-scoped-repository.decorator';
 import { WorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/workspace-scoped-repository';
 import { RoleValidationService } from 'src/engine/metadata-modules/role-validation/services/role-validation.service';
@@ -258,6 +259,152 @@ export class UserWorkspaceService {
       workspaceId: workspace.id,
       value: true,
     });
+  }
+
+  async ensureUserIsInWorkspace(
+    user: UserEntity,
+    workspace: WorkspaceEntity,
+    roleId?: string | null,
+  ): Promise<void> {
+    let userWorkspace = await this.checkUserWorkspaceExists(
+      user.id,
+      workspace.id,
+    );
+    const userWorkspaceWasMissing = !isDefined(userWorkspace);
+    let userWorkspaceRoles: Map<string, RoleEntity[]> = new Map();
+
+    if (userWorkspace) {
+      userWorkspaceRoles = await this.userRoleService.getRolesByUserWorkspaces({
+        workspaceId: workspace.id,
+        userWorkspaceIds: [userWorkspace.id],
+      });
+    }
+
+    const userWorkspaceHasRole =
+      (userWorkspaceRoles.get(userWorkspace?.id ?? '')?.length ?? 0) > 0;
+    const userWorkspaceRoleWasMissing = !userWorkspaceHasRole;
+    const resolvedRoleId = userWorkspaceHasRole
+      ? undefined
+      : await this.resolveRoleIdForNewMember(roleId, workspace);
+
+    if (!userWorkspace) {
+      try {
+        userWorkspace = await this.create({
+          userId: user.id,
+          workspaceId: workspace.id,
+          isExistingUser: true,
+          locale: user.locale,
+        });
+      } catch (error) {
+        userWorkspace = await this.checkUserWorkspaceExists(
+          user.id,
+          workspace.id,
+        );
+
+        if (!userWorkspace) {
+          throw error;
+        }
+      }
+    }
+
+    const workspaceMemberWasMissing = await this.ensureWorkspaceMemberExists(
+      workspace.id,
+      user,
+    );
+
+    if (!userWorkspaceHasRole) {
+      if (!resolvedRoleId) {
+        throw new Error('A workspace role is required for membership');
+      }
+
+      try {
+        await this.userRoleService.assignRoleToManyUserWorkspace({
+          workspaceId: workspace.id,
+          userWorkspaceIds: [userWorkspace.id],
+          roleId: resolvedRoleId,
+        });
+      } catch (error) {
+        userWorkspaceRoles =
+          await this.userRoleService.getRolesByUserWorkspaces({
+            workspaceId: workspace.id,
+            userWorkspaceIds: [userWorkspace.id],
+          });
+
+        if ((userWorkspaceRoles.get(userWorkspace.id)?.length ?? 0) === 0) {
+          throw error;
+        }
+      }
+    }
+
+    if (
+      userWorkspaceWasMissing ||
+      workspaceMemberWasMissing ||
+      userWorkspaceRoleWasMissing
+    ) {
+      await this.onboardingService.setOnboardingCreateProfilePending({
+        userId: user.id,
+        workspaceId: workspace.id,
+        value: true,
+      });
+    }
+  }
+
+  private async ensureWorkspaceMemberExists(
+    workspaceId: string,
+    user: UserEntity,
+  ): Promise<boolean> {
+    const authContext = buildSystemAuthContext(workspaceId);
+
+    return this.workspaceOrmManager.executeInWorkspaceContext(async () => {
+      const workspaceMemberRepository =
+        this.workspaceOrmManager.getRepository<WorkspaceMemberWorkspaceEntity>(
+          'workspaceMember',
+          { shouldBypassPermissionChecks: true },
+        );
+      const existingWorkspaceMember = await workspaceMemberRepository.findOne({
+        where: { userId: user.id },
+      });
+
+      if (existingWorkspaceMember) {
+        return false;
+      }
+
+      const userWorkspace = await this.userWorkspaceRepository.findOneOrFail({
+        where: {
+          userId: user.id,
+          workspaceId,
+        },
+      });
+
+      try {
+        await workspaceMemberRepository.insert({
+          name: {
+            firstName: user.firstName,
+            lastName: user.lastName,
+          },
+          colorScheme: 'System',
+          uiScale: 'Default',
+          openRecordIn: OpenRecordIn.SIDE_PANEL,
+          userId: user.id,
+          userEmail: user.email,
+          avatarUrl: userWorkspace.defaultAvatarUrl ?? null,
+          locale: (user.locale ?? SOURCE_LOCALE) as keyof typeof APP_LOCALES,
+        });
+
+        return true;
+      } catch (error) {
+        const concurrentlyCreatedWorkspaceMember =
+          await workspaceMemberRepository.findOne({
+            where: { userId: user.id },
+          });
+
+        if (concurrentlyCreatedWorkspaceMember) {
+          return false;
+        }
+
+        throw error;
+      }
+    }, authContext);
   }
 
   private async resolveRoleIdForNewMember(

@@ -20,6 +20,15 @@ describe('getCaptchaUrlByProvider', () => {
     );
   });
 
+  it('loads the explicit rendering API for the Google v2 checkbox', () => {
+    expect(
+      getCaptchaUrlByProvider(
+        CaptchaDriverType.GOOGLE_RECAPTCHA_V_2_CHECKBOX,
+        'siteKey',
+      ),
+    ).toEqual('https://www.google.com/recaptcha/api.js?render=explicit');
+  });
+
   it('handles Turnstile', async () => {
     const captchaUrl = getCaptchaUrlByProvider(CaptchaDriverType.TURNSTILE, '');
 

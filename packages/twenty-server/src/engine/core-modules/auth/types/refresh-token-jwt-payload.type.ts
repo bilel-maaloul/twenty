@@ -9,6 +9,7 @@ export type RefreshTokenJwtPayload = CommonPropertiesJwtPayload & {
   jti?: string;
   authProvider?: AuthProviderEnum;
   targetedTokenType: JwtTokenTypeEnum;
+  credentialEpoch?: number;
   isImpersonating?: boolean;
   impersonatorUserWorkspaceId?: string;
   impersonatedUserWorkspaceId?: string;

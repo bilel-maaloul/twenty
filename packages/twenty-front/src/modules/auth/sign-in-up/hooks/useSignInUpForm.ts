@@ -17,7 +17,6 @@ import { useAtomStateValue } from '@/ui/utilities/state/jotai/hooks/useAtomState
 const makeValidationSchema = (signInUpStep: SignInUpStep) =>
   z
     .object({
-      exist: z.boolean(),
       email: z
         .string()
         .trim()
@@ -31,7 +30,6 @@ const makeValidationSchema = (signInUpStep: SignInUpStep) =>
                 t`Password must be between 8 and 50 characters`,
               )
           : z.string().optional(),
-      captchaToken: z.string().default(''),
     })
     .required();
 
@@ -50,10 +48,8 @@ export const useSignInUpForm = () => {
   const form = useForm<Form>({
     mode: 'onSubmit',
     defaultValues: {
-      exist: false,
       email: '',
       password: '',
-      captchaToken: '',
     },
     resolver: zodResolver(validationSchema),
   });

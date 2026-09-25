@@ -31,6 +31,7 @@ const CALENDAR_EVENT = {
   eventType: 'MEETING',
   isCanceled: false,
   isFullDay: false,
+  endsAt: '2026-07-15T11:00:00.000Z',
   startsAt: '2026-07-15T10:00:00.000Z',
   title: 'Product review',
 } satisfies CalendarPageCalendarEvent;
@@ -91,6 +92,16 @@ describe('CalendarMonthGrid', () => {
     expect(
       screen.getByRole('button', { name: /Open Product review at/i }),
     ).toBeVisible();
+  });
+
+  it('renders the end time for timed calendar events', () => {
+    renderCalendarMonthGrid();
+
+    const eventButton = screen.getByRole('button', {
+      name: /Open Product review at/i,
+    });
+
+    expect(eventButton).toHaveAccessibleName(expect.stringContaining('11:00'));
   });
 
   it('opens existing calendar event details when an event is clicked', async () => {

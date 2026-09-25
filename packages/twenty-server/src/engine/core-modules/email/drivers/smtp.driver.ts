@@ -31,4 +31,24 @@ export class SmtpDriver implements EmailDriverInterface {
 
     this.logger.log(`Email to '${sendMailOptions.to}' successfully sent`);
   }
+
+  async verifySensitiveDelivery(): Promise<void> {
+    try {
+      await this.transport.verify();
+    } catch {
+      this.logger.error('Sensitive email SMTP preflight failed');
+      throw new Error('Sensitive email SMTP preflight failed');
+    }
+  }
+
+  async sendSensitive(sendMailOptions: SendMailOptions): Promise<void> {
+    try {
+      await this.transport.sendMail(sendMailOptions);
+    } catch {
+      this.logger.error('Sensitive email SMTP delivery failed');
+      throw new Error('Sensitive email SMTP delivery failed');
+    }
+
+    this.logger.log('Sensitive email SMTP delivery completed');
+  }
 }

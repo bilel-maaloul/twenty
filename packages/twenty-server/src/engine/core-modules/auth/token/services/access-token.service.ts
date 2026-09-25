@@ -28,6 +28,7 @@ import { UserWorkspaceEntity } from 'src/engine/core-modules/user-workspace/user
 import { UserWorkspaceNotFoundDefaultError } from 'src/engine/core-modules/user-workspace/user-workspace.exception';
 import { UserEntity } from 'src/engine/core-modules/user/user.entity';
 import { userValidator } from 'src/engine/core-modules/user/user.validate';
+import { assertUserCanAuthenticate } from 'src/engine/core-modules/auth/utils/assert-user-credential-is-valid.util';
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
 import { WorkspaceNotFoundDefaultError } from 'src/engine/core-modules/workspace/workspace.exception';
 import { WorkspaceOrmManager } from 'src/engine/twenty-orm/workspace-orm.manager';
@@ -72,6 +73,7 @@ export class AccessTokenService {
       user,
       new AuthException('User is not found', AuthExceptionCode.INVALID_INPUT),
     );
+    assertUserCanAuthenticate(user);
     assertIsDefinedOrThrow(workspace, WorkspaceNotFoundDefaultError);
     assertIsDefinedOrThrow(userWorkspace, UserWorkspaceNotFoundDefaultError);
 
@@ -119,7 +121,7 @@ export class AccessTokenService {
     impersonatedUserWorkspaceId,
   }: Omit<
     AccessTokenJwtPayload,
-    'type' | 'workspaceMemberId' | 'userWorkspaceId' | 'sub'
+    'type' | 'workspaceMemberId' | 'userWorkspaceId' | 'sub' | 'credentialEpoch'
   >): Promise<AuthToken> {
     const expiresIn = this.twentyConfigService.get('ACCESS_TOKEN_EXPIRES_IN');
     const expiresAt = addMilliseconds(new Date().getTime(), ms(expiresIn));
@@ -135,6 +137,7 @@ export class AccessTokenService {
       userWorkspaceId: userWorkspace.id,
       type: JwtTokenTypeEnum.ACCESS,
       authProvider,
+      credentialEpoch: user.credentialEpoch,
       isImpersonating: isImpersonating === true,
       impersonatorUserWorkspaceId:
         isImpersonating === true ? impersonatorUserWorkspaceId : undefined,
@@ -173,6 +176,7 @@ export class AccessTokenService {
       userWorkspaceId: userWorkspace.id,
       type: JwtTokenTypeEnum.PLAYGROUND,
       authProvider,
+      credentialEpoch: user.credentialEpoch,
     };
 
     const token = await this.jwtWrapperService.signAsyncOrThrow(jwtPayload, {

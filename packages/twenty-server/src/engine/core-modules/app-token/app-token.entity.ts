@@ -27,6 +27,7 @@ export enum AppTokenType {
   EmailVerificationToken = 'EMAIL_VERIFICATION_TOKEN',
   EnterpriseValidityToken = 'ENTERPRISE_VALIDITY_TOKEN',
   SsoExchangeToken = 'SSO_EXCHANGE_TOKEN',
+  FirstPasswordCreation = 'FIRST_PASSWORD_CREATION',
 }
 
 @Entity({ name: 'appToken', schema: 'core' })
@@ -94,5 +95,6 @@ export class AppTokenEntity {
     codeChallenge?: string;
     scope?: string;
     authProvider?: AuthProviderEnum;
+    credentialEpoch?: number;
   } | null;
 }

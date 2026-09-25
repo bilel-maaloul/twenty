@@ -5,6 +5,7 @@ import { type NextFunction, type Request, type Response } from 'express';
 import { isDefined } from 'twenty-shared/utils';
 
 import { JwtWrapperService } from 'src/engine/core-modules/jwt/services/jwt-wrapper.service';
+import { FirstPasswordCookieService } from 'src/engine/core-modules/auth/services/first-password-cookie.service';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import { UserSessionCookieService } from 'src/engine/core-modules/user-session/services/user-session-cookie.service';
 import { isRequestOriginAllowed } from 'src/engine/core-modules/user-session/utils/is-request-origin-allowed.util';
@@ -20,6 +21,7 @@ export class CookieSessionCsrfMiddleware implements NestMiddleware {
   constructor(
     private readonly twentyConfigService: TwentyConfigService,
     private readonly userSessionCookieService: UserSessionCookieService,
+    private readonly firstPasswordCookieService: FirstPasswordCookieService,
     private readonly jwtWrapperService: JwtWrapperService,
   ) {}
 
@@ -28,15 +30,20 @@ export class CookieSessionCsrfMiddleware implements NestMiddleware {
       return next();
     }
 
-    // Any other Authorization scheme still falls through to cookie auth, so it
-    // must not skip the check.
+    const hasFirstPasswordCookie =
+      this.firstPasswordCookieService.hasFirstPasswordCookie(request);
+
+    // A bearer header cannot make a browser-attached first-password cookie
+    // safe from cross-origin use.
     if (
+      !hasFirstPasswordCookie &&
       isNonEmptyString(this.jwtWrapperService.extractJwtFromRequest()(request))
     ) {
       return next();
     }
 
     if (
+      !hasFirstPasswordCookie &&
       !isDefined(
         this.userSessionCookieService.extractSessionTokenFromRequest(request),
       )

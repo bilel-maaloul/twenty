@@ -7,6 +7,8 @@ import { formatDistanceToNow } from 'date-fns';
 import { useContext, useMemo } from 'react';
 
 import { SettingsRolesQueryEffect } from '@/settings/roles/components/SettingsRolesQueryEffect';
+import { useHasPermissionFlag } from '@/settings/roles/hooks/useHasPermissionFlag';
+import { WorkspaceMemberTemporaryPasswordProvisioningForm } from '@/workspace/components/WorkspaceMemberTemporaryPasswordProvisioningForm';
 
 import { useSnackBarOnQueryError } from '@/apollo/hooks/useSnackBarOnQueryError';
 import { currentWorkspaceState } from '@/auth/states/currentWorkspaceState';
@@ -30,6 +32,7 @@ import { IconButton } from 'twenty-ui/input';
 import { Section } from 'twenty-ui/layout';
 import { ThemeContext, themeCssVariables } from 'twenty-ui/theme-constants';
 import { GetWorkspaceInvitationsDocument } from '~/generated-metadata/graphql';
+import { PermissionFlagType } from '~/generated-metadata/graphql';
 import { dateLocaleState } from '~/localization/states/dateLocaleState';
 
 const StyledButtonContainer = styled.div`
@@ -73,6 +76,9 @@ export const SettingsWorkspaceMembersInviteTab = () => {
   const { t } = useLingui();
   const { enqueueErrorSnackBar } = useSnackBar();
   const roles = useSettingsAllRoles();
+  const canManageWorkspaceMembers = useHasPermissionFlag(
+    PermissionFlagType.WORKSPACE_MEMBERS,
+  );
   const { localeCatalog } = useAtomStateValue(dateLocaleState);
 
   const rolesById = useMemo(
@@ -234,6 +240,9 @@ export const SettingsWorkspaceMembersInviteTab = () => {
           </StyledTableContainer>
         )}
       </Section>
+      {canManageWorkspaceMembers && (
+        <WorkspaceMemberTemporaryPasswordProvisioningForm roles={roles} />
+      )}
       <Section>
         <H2Title
           title={t`Approved Domains`}

@@ -9,6 +9,7 @@ export type AccessTokenJwtPayload = CommonPropertiesJwtPayload & {
   workspaceMemberId?: string;
   userWorkspaceId: string;
   authProvider: AuthProviderEnum;
+  credentialEpoch?: number;
   isImpersonating?: boolean;
   impersonatorUserWorkspaceId?: string;
   impersonatedUserWorkspaceId?: string;

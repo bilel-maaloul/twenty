@@ -3,6 +3,7 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import { type NextFunction, type Request, type Response } from 'express';
 
 import { JwtWrapperService } from 'src/engine/core-modules/jwt/services/jwt-wrapper.service';
+import { FirstPasswordCookieService } from 'src/engine/core-modules/auth/services/first-password-cookie.service';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import { UserSessionCookieService } from 'src/engine/core-modules/user-session/services/user-session-cookie.service';
 import { CookieSessionCsrfMiddleware } from 'src/engine/middlewares/cookie-session-csrf.middleware';
@@ -47,6 +48,7 @@ describe('CookieSessionCsrfMiddleware', () => {
       providers: [
         CookieSessionCsrfMiddleware,
         UserSessionCookieService,
+        FirstPasswordCookieService,
         {
           provide: TwentyConfigService,
           useValue: {
@@ -93,6 +95,48 @@ describe('CookieSessionCsrfMiddleware', () => {
     });
 
     middleware.use(request, buildResponse(), next);
+
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('rejects a restricted-cookie request from another origin even with a bearer header', () => {
+    const response = buildResponse();
+    const request = buildRequest({
+      headers: {
+        authorization: 'Bearer some-jwt',
+        cookie: '__Host-twenty-first-password=opaque-value',
+        origin: 'https://evil.example.org',
+      },
+    });
+
+    middleware.use(request, response, next);
+
+    expect(response.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('rejects a restricted-cookie request without Origin', () => {
+    const response = buildResponse();
+    const request = buildRequest({
+      headers: { cookie: '__Host-twenty-first-password=opaque-value' },
+    });
+
+    middleware.use(request, response, next);
+
+    expect(response.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('allows an allowed-origin restricted-cookie request', () => {
+    const response = buildResponse();
+    const request = buildRequest({
+      headers: {
+        cookie: '__Host-twenty-first-password=opaque-value',
+        origin: 'https://front.example.com',
+      },
+    });
+
+    middleware.use(request, response, next);
 
     expect(next).toHaveBeenCalled();
   });

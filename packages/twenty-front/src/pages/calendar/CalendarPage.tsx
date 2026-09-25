@@ -48,6 +48,7 @@ const CALENDAR_EVENT_RECORD_GQL_FIELDS = {
   isCanceled: true,
   isFullDay: true,
   owner: { id: true },
+  endsAt: true,
   startsAt: true,
   title: true,
 } as const;
@@ -157,30 +158,33 @@ export const CalendarPage = () => {
     [calendarAccounts],
   );
 
-  const dateRangeFilter = useMemo(
-    () =>
-      ({
-        and: [
-          {
-            startsAt: {
-              gte: turnPlainDateIntoUserTimeZoneInstantString(
-                firstDay,
-                userTimezone,
-              ),
-            },
-          },
-          {
-            startsAt: {
-              lt: turnPlainDateIntoUserTimeZoneInstantString(
-                lastDay.add({ days: 1 }),
-                userTimezone,
-              ),
-            },
-          },
-        ],
-      }) satisfies RecordGqlOperationFilter,
-    [firstDay, lastDay, userTimezone],
-  );
+  const dateRangeFilter = useMemo(() => {
+    const rangeStart = turnPlainDateIntoUserTimeZoneInstantString(
+      firstDay,
+      userTimezone,
+    );
+    const rangeEnd = turnPlainDateIntoUserTimeZoneInstantString(
+      lastDay.add({ days: 1 }),
+      userTimezone,
+    );
+
+    return {
+      or: [
+        {
+          and: [
+            { startsAt: { gte: rangeStart } },
+            { startsAt: { lt: rangeEnd } },
+          ],
+        },
+        {
+          and: [
+            { startsAt: { lt: rangeStart } },
+            { endsAt: { gt: rangeStart } },
+          ],
+        },
+      ],
+    } satisfies RecordGqlOperationFilter;
+  }, [firstDay, lastDay, userTimezone]);
 
   const { records, loading, error, refetch } =
     useFindManyRecords<CalendarPageCalendarEvent>({
