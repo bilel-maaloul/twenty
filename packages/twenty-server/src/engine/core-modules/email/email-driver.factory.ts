@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, type OnModuleDestroy } from '@nestjs/common';
 
 import { type EmailDriverInterface } from 'src/engine/core-modules/email/drivers/interfaces/email-driver.interface';
 
@@ -11,12 +11,48 @@ import { ConfigGroupHashService } from 'src/engine/core-modules/twenty-config/se
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 
 @Injectable()
-export class EmailDriverFactory extends DriverFactoryBase<EmailDriverInterface> {
+export class EmailDriverFactory
+  extends DriverFactoryBase<EmailDriverInterface>
+  implements OnModuleDestroy
+{
+  private sensitiveSmtpDriver: SmtpDriver | null = null;
+  private sensitiveSmtpConfigKey: string | null = null;
+
   constructor(
     twentyConfigService: TwentyConfigService,
     configGroupHashService: ConfigGroupHashService,
   ) {
     super(twentyConfigService, configGroupHashService);
+  }
+
+  getSensitiveSmtpDriver(): SmtpDriver {
+    if (this.twentyConfigService.get('EMAIL_DRIVER') !== EmailDriver.SMTP) {
+      throw new Error('Sensitive email delivery requires SMTP');
+    }
+
+    if (this.twentyConfigService.get('EMAIL_SMTP_NO_TLS')) {
+      throw new Error('Sensitive email delivery requires SMTP with TLS');
+    }
+
+    const emailConfigHash = this.configGroupHashService.computeHash(
+      ConfigVariablesGroup.EMAIL_SETTINGS,
+    );
+    const configKey = `smtp-sensitive|${emailConfigHash}`;
+
+    if (this.sensitiveSmtpConfigKey !== configKey) {
+      this.sensitiveSmtpDriver?.close();
+      this.sensitiveSmtpDriver = this.createSmtpDriver(true);
+      this.sensitiveSmtpConfigKey = configKey;
+    }
+
+    return this.sensitiveSmtpDriver!;
+  }
+
+  onModuleDestroy(): void {
+    super.onModuleDestroy();
+    this.sensitiveSmtpDriver?.close();
+    this.sensitiveSmtpDriver = null;
+    this.sensitiveSmtpConfigKey = null;
   }
 
   protected buildConfigKey(): string {
@@ -44,37 +80,8 @@ export class EmailDriverFactory extends DriverFactoryBase<EmailDriverInterface> 
       case EmailDriver.LOGGER:
         return new LoggerDriver();
 
-      case EmailDriver.SMTP: {
-        const host = this.twentyConfigService.get('EMAIL_SMTP_HOST');
-        const port = this.twentyConfigService.get('EMAIL_SMTP_PORT');
-        const user = this.twentyConfigService.get('EMAIL_SMTP_USER');
-        const pass = this.twentyConfigService.get('EMAIL_SMTP_PASSWORD');
-        const noTLS = this.twentyConfigService.get('EMAIL_SMTP_NO_TLS');
-
-        if (!host || !port) {
-          throw new Error('SMTP driver requires host and port to be defined');
-        }
-
-        const options: {
-          host: string;
-          port: number;
-          auth?: { user: string; pass: string };
-          secure?: boolean;
-          ignoreTLS?: boolean;
-          requireTLS?: boolean;
-        } = { host, port };
-
-        if (user && pass) {
-          options.auth = { user, pass };
-        }
-
-        if (noTLS) {
-          options.secure = false;
-          options.ignoreTLS = true;
-        }
-
-        return new SmtpDriver(options);
-      }
+      case EmailDriver.SMTP:
+        return this.createSmtpDriver(false);
 
       default:
         throw new Error(`Invalid email driver: ${driver}`);
@@ -83,5 +90,45 @@ export class EmailDriverFactory extends DriverFactoryBase<EmailDriverInterface> 
 
   protected disposeDriver(driver: EmailDriverInterface): void {
     driver.close?.();
+  }
+
+  private createSmtpDriver(requireTls: boolean): SmtpDriver {
+    const host = this.twentyConfigService.get('EMAIL_SMTP_HOST');
+    const port = this.twentyConfigService.get('EMAIL_SMTP_PORT');
+    const user = this.twentyConfigService.get('EMAIL_SMTP_USER');
+    const pass = this.twentyConfigService.get('EMAIL_SMTP_PASSWORD');
+    const noTLS = this.twentyConfigService.get('EMAIL_SMTP_NO_TLS');
+
+    if (!host || !port) {
+      throw new Error('SMTP driver requires host and port to be defined');
+    }
+
+    const options: {
+      host: string;
+      port: number;
+      auth?: { user: string; pass: string };
+      secure?: boolean;
+      ignoreTLS?: boolean;
+      requireTLS?: boolean;
+    } = { host, port };
+
+    if (user && pass) {
+      options.auth = { user, pass };
+    }
+
+    if (noTLS) {
+      options.secure = false;
+      options.ignoreTLS = true;
+    }
+
+    if (requireTls) {
+      if (port === 465) {
+        options.secure = true;
+      } else {
+        options.requireTLS = true;
+      }
+    }
+
+    return new SmtpDriver(options);
   }
 }

@@ -42,7 +42,10 @@ export const CaptchaProviderScriptLoaderEffect = () => {
       scriptElement = document.createElement('script');
       scriptElement.src = scriptUrl;
       scriptElement.onload = () => {
-        if (captcha.provider === CaptchaDriverType.GOOGLE_RECAPTCHA) {
+        if (
+          captcha.provider === CaptchaDriverType.GOOGLE_RECAPTCHA ||
+          captcha.provider === CaptchaDriverType.GOOGLE_RECAPTCHA_V_2_CHECKBOX
+        ) {
           window.grecaptcha?.ready(() => {
             setIsCaptchaScriptLoaded(true);
           });
@@ -77,6 +80,8 @@ export const CaptchaProviderScriptLoaderEffect = () => {
         // Cloudflare Turnstile tokens expire after 500 seconds, refresh at 480 seconds
         refreshInterval = setInterval(requestFreshCaptchaToken, 480 * 1000);
         break;
+      case CaptchaDriverType.GOOGLE_RECAPTCHA_V_2_CHECKBOX:
+        return;
       default:
         // Note: hCaptcha has a callback system for expiration that we're not implementing now
         return;

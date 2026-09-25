@@ -6,6 +6,22 @@ import { logError } from '~/utils/logError';
 import { isDefined } from 'twenty-shared/utils';
 import formatTitle from './formatTitle';
 
+const containsSensitiveVariable = (value: unknown): boolean => {
+  if (Array.isArray(value)) {
+    return value.some(containsSensitiveVariable);
+  }
+
+  if (value === null || typeof value !== 'object') {
+    return false;
+  }
+
+  return Object.entries(value).some(
+    ([key, nestedValue]) =>
+      /(password|captcha.?token)/i.test(key) ||
+      containsSensitiveVariable(nestedValue),
+  );
+};
+
 const getGroup = (collapsed: boolean) =>
   collapsed
     ? console.groupCollapsed.bind(console)
@@ -30,6 +46,10 @@ export const loggerLink = (getSchemaName: (operation: Operation) => string) =>
     operation.setContext({ start: Date.now() });
 
     const { variables } = operation;
+
+    if (containsSensitiveVariable(variables)) {
+      return forward(operation);
+    }
 
     const operationType = (operation.query.definitions[0] as any).operation;
     const headers = operation.getContext().headers;

@@ -28,6 +28,7 @@ import { ApiKeyTokenInput } from 'src/engine/core-modules/auth/dto/api-key-token
 import { AppTokenInput } from 'src/engine/core-modules/auth/dto/app-token.input';
 import { AuthorizeAppDTO } from 'src/engine/core-modules/auth/dto/authorize-app.dto';
 import { AuthorizeAppInput } from 'src/engine/core-modules/auth/dto/authorize-app.input';
+import { CreateFirstPasswordInput } from 'src/engine/core-modules/auth/dto/create-first-password.input';
 import { AvailableWorkspacesAndAccessTokensDTO } from 'src/engine/core-modules/auth/dto/available-workspaces-and-access-tokens.dto';
 import { EmailPasswordResetLinkDTO } from 'src/engine/core-modules/auth/dto/email-password-reset-link.dto';
 import { EmailPasswordResetLinkInput } from 'src/engine/core-modules/auth/dto/email-password-reset-link.input';
@@ -43,7 +44,13 @@ import { ValidatePasswordResetTokenInput } from 'src/engine/core-modules/auth/dt
 import { VerifyEmailAndGetLoginTokenDTO } from 'src/engine/core-modules/auth/dto/verify-email-and-get-login-token.dto';
 import { AuthGraphqlApiExceptionFilter } from 'src/engine/core-modules/auth/filters/auth-graphql-api-exception.filter';
 import { ResetPasswordService } from 'src/engine/core-modules/auth/services/reset-password.service';
+import { FirstPasswordCookieService } from 'src/engine/core-modules/auth/services/first-password-cookie.service';
+import {
+  FirstPasswordCreationService,
+  FirstPasswordInputRejectedException,
+} from 'src/engine/core-modules/auth/services/first-password-creation.service';
 import { ThrottlerGraphqlApiExceptionFilter } from 'src/engine/core-modules/throttler/filters/throttler-graphql-api-exception.filter';
+import { ThrottlerException } from 'src/engine/core-modules/throttler/throttler.exception';
 import { ThrottlerService } from 'src/engine/core-modules/throttler/throttler.service';
 import { SignInUpService } from 'src/engine/core-modules/auth/services/sign-in-up.service';
 import { AccessTokenService } from 'src/engine/core-modules/auth/token/services/access-token.service';
@@ -117,6 +124,8 @@ import { AuthService } from './services/auth.service';
 
 const PASSWORD_RESET_EMAIL_RATE_LIMIT_MAX = 3;
 const PASSWORD_RESET_EMAIL_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const FIRST_PASSWORD_CREATION_RATE_LIMIT_MAX = 3;
+const FIRST_PASSWORD_CREATION_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 
 @UsePipes(ResolverValidationPipe)
 @MetadataResolver()
@@ -163,6 +172,8 @@ export class AuthResolver {
     private readonly fileCorePictureService: FileCorePictureService,
     private readonly userSessionService: UserSessionService,
     private readonly userSessionCookieService: UserSessionCookieService,
+    private readonly firstPasswordCookieService: FirstPasswordCookieService,
+    private readonly firstPasswordCreationService: FirstPasswordCreationService,
   ) {}
 
   @UseGuards(CaptchaGuard, PublicEndpointGuard, NoPermissionGuard)
@@ -212,6 +223,7 @@ export class AuthResolver {
     @Args()
     getLoginTokenFromCredentialsInput: UserCredentialsInput,
     @Args('origin') origin: string,
+    @Context() context: { req: Request },
   ): Promise<LoginTokenDTO> {
     const workspace =
       await this.workspaceDomainsService.getWorkspaceByOriginOrDefaultWorkspace(
@@ -226,19 +238,45 @@ export class AuthResolver {
       ),
     );
 
-    const user = await this.authService.validateLoginWithPassword(
+    const validation = await this.authService.validateLoginWithPassword(
       getLoginTokenFromCredentialsInput,
       workspace,
     );
 
+    if (validation.kind === 'firstPasswordCreation') {
+      this.firstPasswordCookieService.assertAllowedOrigin(context.req);
+      const response = context.req.res;
+
+      if (!response) {
+        throw new AuthException(
+          'HTTP response is required for first-password creation',
+          AuthExceptionCode.FORBIDDEN_EXCEPTION,
+        );
+      }
+
+      const { capability, expiresAt } =
+        await this.firstPasswordCreationService.issueCapability(
+          validation.user,
+          getLoginTokenFromCredentialsInput.password,
+        );
+
+      this.firstPasswordCookieService.attachCapability(
+        response,
+        capability,
+        expiresAt,
+      );
+
+      return { requiresFirstPasswordCreation: true, loginToken: null };
+    }
+
     const loginToken = await this.loginTokenService.generateLoginToken(
-      user.email,
+      validation.user.email,
       workspace.id,
       // email validation is active only for password flow
       AuthProviderEnum.Password,
     );
 
-    return { loginToken };
+    return { loginToken, requiresFirstPasswordCreation: false };
   }
 
   @Mutation(() => AvailableWorkspacesAndAccessTokensDTO)
@@ -248,8 +286,40 @@ export class AuthResolver {
     userCredentials: UserCredentialsInput,
     @Context() context: { req: Request },
   ): Promise<AvailableWorkspacesAndAccessTokensDTO> {
-    const user =
+    const validation =
       await this.authService.validateLoginWithPassword(userCredentials);
+
+    if (validation.kind === 'firstPasswordCreation') {
+      this.firstPasswordCookieService.assertAllowedOrigin(context.req);
+      const response = context.req.res;
+
+      if (!response) {
+        throw new AuthException(
+          'HTTP response is required for first-password creation',
+          AuthExceptionCode.FORBIDDEN_EXCEPTION,
+        );
+      }
+
+      const { capability, expiresAt } =
+        await this.firstPasswordCreationService.issueCapability(
+          validation.user,
+          userCredentials.password,
+        );
+
+      this.firstPasswordCookieService.attachCapability(
+        response,
+        capability,
+        expiresAt,
+      );
+
+      return {
+        requiresFirstPasswordCreation: true,
+        tokens: null,
+        availableWorkspaces: null,
+      };
+    }
+
+    const user = validation.user;
 
     const availableWorkspaces =
       await this.userWorkspaceService.findAvailableWorkspacesByEmail(
@@ -285,7 +355,61 @@ export class AuthResolver {
       origin: 'sign_in',
     });
 
-    return result;
+    return { ...result, requiresFirstPasswordCreation: false };
+  }
+
+  @Mutation(() => Boolean)
+  @UseGuards(PublicEndpointGuard, NoPermissionGuard)
+  async createFirstPassword(
+    @Args() input: CreateFirstPasswordInput,
+    @Context() context: { req: Request },
+  ): Promise<boolean> {
+    const response = context.req.res;
+
+    try {
+      await this.throttlerService.tokenBucketThrottleOrThrow(
+        `first-password-creation:${context.req.ip}`,
+        1,
+        FIRST_PASSWORD_CREATION_RATE_LIMIT_MAX,
+        FIRST_PASSWORD_CREATION_RATE_LIMIT_WINDOW_MS,
+      );
+
+      const capability = this.firstPasswordCookieService.extractCapability(
+        context.req,
+      );
+
+      await this.firstPasswordCreationService.createPermanentPassword(
+        capability,
+        input.newPassword,
+        input.confirmPassword,
+      );
+
+      if (response) {
+        this.firstPasswordCookieService.clearCapability(response);
+      }
+
+      return true;
+    } catch (error) {
+      if (error instanceof FirstPasswordInputRejectedException) {
+        throw error;
+      }
+
+      if (response) {
+        this.firstPasswordCookieService.clearCapability(response);
+      }
+
+      if (
+        error instanceof AuthException ||
+        error instanceof ThrottlerException
+      ) {
+        throw error;
+      }
+
+      throw new AuthException(
+        'First-password creation failed',
+        AuthExceptionCode.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   @Mutation(() => VerifyEmailAndGetLoginTokenDTO)

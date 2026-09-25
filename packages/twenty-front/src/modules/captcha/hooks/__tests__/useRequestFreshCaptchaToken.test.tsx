@@ -3,6 +3,7 @@ import { type ReactNode } from 'react';
 import { Provider as JotaiProvider } from 'jotai';
 
 import { useRequestFreshCaptchaToken } from '@/captcha/hooks/useRequestFreshCaptchaToken';
+import { captchaTokenState } from '@/captcha/states/captchaTokenState';
 import { isRequestingCaptchaTokenState } from '@/captcha/states/isRequestingCaptchaTokenState';
 import { isCaptchaRequiredForPath } from '@/captcha/utils/isCaptchaRequiredForPath';
 import { captchaState } from '@/client-config/states/captchaState';
@@ -124,5 +125,65 @@ describe('useRequestFreshCaptchaToken', () => {
     expect(mockTurnstileExecute).toHaveBeenCalledWith('turnstile-widget-id', {
       callback: expect.any(Function),
     });
+  });
+
+  it('preserves Google v3 behavior after a failed protected request', async () => {
+    jotaiStore.set(isRequestingCaptchaTokenState.atom, false);
+    jotaiStore.set(captchaState.atom, {
+      provider: CaptchaDriverType.GOOGLE_RECAPTCHA,
+      siteKey: 'google-site-key',
+    } as Captcha);
+
+    const { result } = renderHook(() => useRequestFreshCaptchaToken(), {
+      wrapper: createWrapper,
+    });
+
+    await act(async () => {
+      await result.current.requestFreshCaptchaToken({ isRequestFailure: true });
+    });
+
+    expect(mockGrecaptchaExecute).not.toHaveBeenCalled();
+    expect(jotaiStore.get(isRequestingCaptchaTokenState.atom)).toBe(false);
+  });
+
+  it('preserves Turnstile behavior after a failed protected request', async () => {
+    jotaiStore.set(isRequestingCaptchaTokenState.atom, false);
+    jotaiStore.set(captchaState.atom, {
+      provider: CaptchaDriverType.TURNSTILE,
+      siteKey: 'turnstile-site-key',
+    } as Captcha);
+
+    const { result } = renderHook(() => useRequestFreshCaptchaToken(), {
+      wrapper: createWrapper,
+    });
+
+    await act(async () => {
+      await result.current.requestFreshCaptchaToken({ isRequestFailure: true });
+    });
+
+    expect(mockTurnstileRender).not.toHaveBeenCalled();
+    expect(mockTurnstileExecute).not.toHaveBeenCalled();
+    expect(jotaiStore.get(isRequestingCaptchaTokenState.atom)).toBe(false);
+  });
+
+  it('does not execute v2 in the background and clears any previous response', async () => {
+    jotaiStore.set(isRequestingCaptchaTokenState.atom, false);
+    jotaiStore.set(captchaTokenState.atom, 'previous-response');
+    jotaiStore.set(captchaState.atom, {
+      provider: CaptchaDriverType.GOOGLE_RECAPTCHA_V_2_CHECKBOX,
+      siteKey: 'google-v2-site-key',
+    } as Captcha);
+
+    const { result } = renderHook(() => useRequestFreshCaptchaToken(), {
+      wrapper: createWrapper,
+    });
+
+    await act(async () => {
+      await result.current.requestFreshCaptchaToken();
+    });
+
+    expect(mockGrecaptchaExecute).not.toHaveBeenCalled();
+    expect(jotaiStore.get(captchaTokenState.atom)).toBeUndefined();
+    expect(jotaiStore.get(isRequestingCaptchaTokenState.atom)).toBe(false);
   });
 });

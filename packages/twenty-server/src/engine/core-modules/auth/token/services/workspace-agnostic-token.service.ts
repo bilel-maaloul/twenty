@@ -18,6 +18,10 @@ import { JwtWrapperService } from 'src/engine/core-modules/jwt/services/jwt-wrap
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import { UserEntity } from 'src/engine/core-modules/user/user.entity';
 import { userValidator } from 'src/engine/core-modules/user/user.validate';
+import {
+  assertUserCanAuthenticate,
+  assertUserCredentialIsValid,
+} from 'src/engine/core-modules/auth/utils/assert-user-credential-is-valid.util';
 
 @Injectable()
 export class WorkspaceAgnosticTokenService {
@@ -49,12 +53,14 @@ export class WorkspaceAgnosticTokenService {
       user,
       new AuthException('User is not found', AuthExceptionCode.INVALID_INPUT),
     );
+    assertUserCanAuthenticate(user);
 
     const jwtPayload: WorkspaceAgnosticTokenJwtPayload = {
       sub: user.id,
       userId: user.id,
       authProvider,
       type: JwtTokenTypeEnum.WORKSPACE_AGNOSTIC,
+      credentialEpoch: user.credentialEpoch,
     };
 
     return {
@@ -84,6 +90,8 @@ export class WorkspaceAgnosticTokenService {
       });
 
       userValidator.assertIsDefinedOrThrow(user);
+
+      assertUserCredentialIsValid(user, decoded.credentialEpoch);
 
       return { user: fromUserEntityToFlat(user) };
     } catch (error) {

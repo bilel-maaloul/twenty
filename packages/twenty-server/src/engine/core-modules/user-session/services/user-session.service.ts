@@ -206,6 +206,8 @@ export class UserSessionService {
     if (presentedPayload.type !== JwtTokenTypeEnum.ACCESS) {
       return (
         presentedPayload.userId === sessionInput.userId &&
+        (presentedPayload.credentialEpoch ?? 0) ===
+          sessionInput.credentialEpoch &&
         !isDefined(sessionInput.workspaceId) &&
         sessionInput.isImpersonating !== true
       );
@@ -213,6 +215,8 @@ export class UserSessionService {
 
     return (
       presentedPayload.userId === sessionInput.userId &&
+      (presentedPayload.credentialEpoch ?? 0) ===
+        sessionInput.credentialEpoch &&
       (presentedPayload.workspaceId ?? null) ===
         (sessionInput.workspaceId ?? null) &&
       (presentedPayload.isImpersonating === true) ===
@@ -250,6 +254,7 @@ export class UserSessionService {
         workspaceId: payload.workspaceId,
         userWorkspaceId: payload.userWorkspaceId,
         authProvider: payload.authProvider,
+        credentialEpoch: payload.credentialEpoch ?? 0,
         isImpersonating: payload.isImpersonating === true,
         impersonatorUserWorkspaceId: payload.impersonatorUserWorkspaceId,
         impersonatedUserWorkspaceId: payload.impersonatedUserWorkspaceId,
@@ -262,6 +267,7 @@ export class UserSessionService {
       return {
         userId: payload.userId ?? payload.sub,
         authProvider: payload.authProvider,
+        credentialEpoch: payload.credentialEpoch ?? 0,
         origin,
         ...requestMetadata,
       };
@@ -315,6 +321,7 @@ export class UserSessionService {
         workspaceId: input.workspaceId ?? null,
         userWorkspaceId: input.userWorkspaceId ?? null,
         authProvider: input.authProvider,
+        credentialEpoch: input.credentialEpoch,
         isImpersonating: input.isImpersonating === true,
         impersonatorUserWorkspaceId:
           input.isImpersonating === true
@@ -714,6 +721,7 @@ export class UserSessionService {
       workspaceId: session.workspaceId,
       userWorkspaceId: session.userWorkspaceId,
       authProvider: session.authProvider,
+      credentialEpoch: session.credentialEpoch,
       isImpersonating: session.isImpersonating,
       impersonatorUserWorkspaceId: session.impersonatorUserWorkspaceId,
       impersonatedUserWorkspaceId: session.impersonatedUserWorkspaceId,
@@ -731,6 +739,7 @@ export class UserSessionService {
         sub: cachedSession.userId,
         userId: cachedSession.userId,
         authProvider: cachedSession.authProvider,
+        credentialEpoch: cachedSession.credentialEpoch,
         type: JwtTokenTypeEnum.WORKSPACE_AGNOSTIC,
       };
     }
@@ -745,6 +754,7 @@ export class UserSessionService {
       workspaceId: cachedSession.workspaceId,
       userWorkspaceId: cachedSession.userWorkspaceId,
       authProvider: cachedSession.authProvider,
+      credentialEpoch: cachedSession.credentialEpoch,
       type: JwtTokenTypeEnum.ACCESS,
       isImpersonating: cachedSession.isImpersonating === true,
       impersonatorUserWorkspaceId:

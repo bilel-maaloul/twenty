@@ -24,6 +24,7 @@ describe('JwtAuthStrategy', () => {
   let twentyConfigService: any;
   let workspaceCacheService: any;
   let coreEntityCacheService: any;
+  let userRepository: { findOne: jest.Mock };
   let workspaceRepository: { findOne: jest.Mock };
 
   const jwt = {
@@ -44,6 +45,21 @@ describe('JwtAuthStrategy', () => {
 
     userWorkspaceRepository = {
       findOne: jest.fn(),
+    };
+    userRepository = {
+      findOne: jest.fn(async ({ where }: { where: { id: string } }) => {
+        const user = userStore[where.id];
+
+        return user
+          ? {
+              id: where.id,
+              disabled: false,
+              mustChangePassword: false,
+              credentialEpoch: 0,
+              ...user,
+            }
+          : null;
+      }),
     };
     workspaceRepository = {
       findOne: jest.fn(),
@@ -139,6 +155,7 @@ describe('JwtAuthStrategy', () => {
         permissionsService,
         twentyConfigService,
       ),
+      userRepository as unknown as Repository<any>,
       workspaceRepository as unknown as Repository<WorkspaceEntity>,
     );
 
@@ -320,6 +337,9 @@ describe('JwtAuthStrategy', () => {
       userStore[validUserId] = {
         id: validUserId,
         lastName: 'lastNameDefault',
+        disabled: false,
+        mustChangePassword: false,
+        credentialEpoch: 0,
       };
 
       coreEntityCacheService.get.mockImplementation(
@@ -405,6 +425,138 @@ describe('JwtAuthStrategy', () => {
           },
         ),
       );
+    });
+  });
+
+  describe('user credential state', () => {
+    const userId = 'valid-user-id';
+    const workspaceId = 'workspace-id';
+
+    beforeEach(() => {
+      workspaceStore[workspaceId] = Object.assign(new WorkspaceEntity(), {
+        id: workspaceId,
+      });
+      userStore[userId] = {
+        id: userId,
+        disabled: false,
+        mustChangePassword: false,
+        credentialEpoch: 0,
+      };
+      userWorkspaceRepository.findOne.mockResolvedValue({
+        id: 'membership-id',
+        workspaceId,
+      });
+      strategy = createStrategy();
+    });
+
+    it.each([JwtTokenTypeEnum.ACCESS, JwtTokenTypeEnum.PLAYGROUND])(
+      'rejects a stale %s bearer token',
+      async (type) => {
+        userStore[userId].credentialEpoch = 1;
+
+        await expect(
+          strategy.validate({
+            sub: userId,
+            userId,
+            workspaceId,
+            userWorkspaceId: 'membership-id',
+            type,
+            credentialEpoch: 0,
+          } as JwtPayload),
+        ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+      },
+    );
+
+    it('rejects disabled users and required-password-change users on workspace-agnostic credentials', async () => {
+      for (const state of [
+        { disabled: true, mustChangePassword: false },
+        { disabled: false, mustChangePassword: true },
+      ]) {
+        Object.assign(userStore[userId], state);
+
+        await expect(
+          strategy.validate({
+            sub: userId,
+            userId,
+            type: JwtTokenTypeEnum.WORKSPACE_AGNOSTIC,
+          } as JwtPayload),
+        ).rejects.toMatchObject({
+          code: AuthExceptionCode.FORBIDDEN_EXCEPTION,
+        });
+      }
+    });
+
+    it('rejects a legacy workspace-agnostic credential after epoch rotation', async () => {
+      userStore[userId].credentialEpoch = 1;
+
+      await expect(
+        strategy.validate({
+          sub: userId,
+          userId,
+          type: JwtTokenTypeEnum.WORKSPACE_AGNOSTIC,
+        } as JwtPayload),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+    });
+
+    it('accepts a current user credential after rotation', async () => {
+      userStore[userId].credentialEpoch = 1;
+
+      await expect(
+        strategy.validate({
+          sub: userId,
+          userId,
+          type: JwtTokenTypeEnum.WORKSPACE_AGNOSTIC,
+          credentialEpoch: 1,
+        } as JwtPayload),
+      ).resolves.toMatchObject({ user: { id: userId } });
+    });
+
+    it('does not apply user credential state to API keys or application tokens', async () => {
+      userStore[userId].disabled = true;
+      userStore[userId].mustChangePassword = true;
+      userStore[userId].credentialEpoch = 3;
+      apiKeyStore[workspaceId] = {
+        'api-key-id': {
+          id: 'api-key-id',
+          revokedAt: null,
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      };
+      applicationStore[workspaceId] = {
+        'application-id': { id: 'application-id' },
+      };
+
+      await expect(
+        strategy.validate({
+          sub: workspaceId,
+          jti: 'api-key-id',
+          type: JwtTokenTypeEnum.API_KEY,
+        } as JwtPayload),
+      ).resolves.toMatchObject({ apiKey: { id: 'api-key-id' } });
+      await expect(
+        strategy.validate({
+          sub: 'application-id',
+          applicationId: 'application-id',
+          workspaceId,
+          type: JwtTokenTypeEnum.APPLICATION_ACCESS,
+        } as JwtPayload),
+      ).resolves.toMatchObject({ application: { id: 'application-id' } });
+
+      await expect(
+        strategy.validate({
+          sub: 'application-id',
+          applicationId: 'application-id',
+          workspaceId,
+          userId,
+          userWorkspaceId: 'membership-id',
+          type: JwtTokenTypeEnum.APPLICATION_ACCESS,
+        } as JwtPayload),
+      ).resolves.toMatchObject({
+        application: { id: 'application-id' },
+        user: { id: userId },
+      });
+
+      expect(userRepository.findOne).not.toHaveBeenCalled();
     });
   });
 
@@ -821,7 +973,13 @@ describe('JwtAuthStrategy', () => {
       mockWorkspace.id = validWorkspaceId;
       mockWorkspace.allowImpersonation = true;
 
-      const mockUser = { id: validUserId, lastName: 'lastNameDefault' };
+      const mockUser = {
+        id: validUserId,
+        lastName: 'lastNameDefault',
+        disabled: false,
+        mustChangePassword: false,
+        credentialEpoch: 0,
+      };
 
       workspaceStore[validWorkspaceId] = mockWorkspace;
       userStore[validUserId] = mockUser;
@@ -889,7 +1047,13 @@ describe('JwtAuthStrategy', () => {
       mockWorkspace.id = validWorkspaceId;
       mockWorkspace.allowImpersonation = true;
 
-      const mockUser = { id: validUserId, lastName: 'lastNameDefault' };
+      const mockUser = {
+        id: validUserId,
+        lastName: 'lastNameDefault',
+        disabled: false,
+        mustChangePassword: false,
+        credentialEpoch: 0,
+      };
 
       workspaceStore[validWorkspaceId] = mockWorkspace;
       userStore[validUserId] = mockUser;
@@ -951,7 +1115,13 @@ describe('JwtAuthStrategy', () => {
       mockWorkspace.id = validWorkspaceId;
       mockWorkspace.allowImpersonation = false;
 
-      const mockUser = { id: validUserId, lastName: 'lastNameDefault' };
+      const mockUser = {
+        id: validUserId,
+        lastName: 'lastNameDefault',
+        disabled: false,
+        mustChangePassword: false,
+        credentialEpoch: 0,
+      };
 
       workspaceStore[validWorkspaceId] = mockWorkspace;
       userStore[validUserId] = mockUser;
@@ -1026,7 +1196,13 @@ describe('JwtAuthStrategy', () => {
       mockWorkspace.id = validWorkspaceId;
       mockWorkspace.allowImpersonation = false;
 
-      const mockUser = { id: validUserId, lastName: 'lastNameDefault' };
+      const mockUser = {
+        id: validUserId,
+        lastName: 'lastNameDefault',
+        disabled: false,
+        mustChangePassword: false,
+        credentialEpoch: 0,
+      };
 
       workspaceStore[validWorkspaceId] = mockWorkspace;
       userStore[validUserId] = mockUser;
@@ -1135,7 +1311,13 @@ describe('JwtAuthStrategy', () => {
       mockWorkspace.id = validWorkspaceId;
       mockWorkspace.allowImpersonation = false;
 
-      const mockUser = { id: validUserId, lastName: 'lastNameDefault' };
+      const mockUser = {
+        id: validUserId,
+        lastName: 'lastNameDefault',
+        disabled: false,
+        mustChangePassword: false,
+        credentialEpoch: 0,
+      };
 
       workspaceStore[validWorkspaceId] = mockWorkspace;
       userStore[validUserId] = mockUser;
@@ -1216,7 +1398,13 @@ describe('JwtAuthStrategy', () => {
       mockWorkspace.id = validWorkspaceId;
       mockWorkspace.allowImpersonation = true;
 
-      const mockUser = { id: validUserId, lastName: 'lastNameDefault' };
+      const mockUser = {
+        id: validUserId,
+        lastName: 'lastNameDefault',
+        disabled: false,
+        mustChangePassword: false,
+        credentialEpoch: 0,
+      };
 
       workspaceStore[validWorkspaceId] = mockWorkspace;
       userStore[validUserId] = mockUser;
@@ -1288,7 +1476,13 @@ describe('JwtAuthStrategy', () => {
       };
 
       workspaceStore[validWorkspaceId] = new WorkspaceEntity();
-      userStore[validUserId] = { id: validUserId, lastName: 'lastNameDefault' };
+      userStore[validUserId] = {
+        id: validUserId,
+        lastName: 'lastNameDefault',
+        disabled: false,
+        mustChangePassword: false,
+        credentialEpoch: 0,
+      };
 
       coreEntityCacheService.get.mockImplementation(
         async (keyName: string, entityId: string) => {

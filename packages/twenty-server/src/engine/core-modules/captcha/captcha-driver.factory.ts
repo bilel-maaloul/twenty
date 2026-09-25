@@ -48,6 +48,7 @@ export class CaptchaDriverFactory extends DriverFactoryBase<CaptchaDriver | null
 
     switch (driver) {
       case CaptchaDriverType.GOOGLE_RECAPTCHA:
+      case CaptchaDriverType.GOOGLE_RECAPTCHA_V_2_CHECKBOX:
         return new GoogleRecaptchaDriver(
           captchaOptions,
           this.secureHttpClientService.getHttpClient({

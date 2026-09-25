@@ -201,6 +201,32 @@ describe('CalendarPage', () => {
     ).toBeInTheDocument();
   });
 
+  it('requests calendar events that overlap the visible date range', () => {
+    renderCalendarPage();
+
+    expect(mockUseFindManyRecords).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filter: {
+          or: [
+            {
+              and: [
+                { startsAt: { gte: '2026-07-13T00:00:00Z' } },
+                { startsAt: { lt: '2026-07-20T00:00:00Z' } },
+              ],
+            },
+            {
+              and: [
+                { startsAt: { lt: '2026-07-13T00:00:00Z' } },
+                { endsAt: { gt: '2026-07-13T00:00:00Z' } },
+              ],
+            },
+          ],
+        },
+        recordGqlFields: expect.objectContaining({ endsAt: true }),
+      }),
+    );
+  });
+
   it('renders a loading state while calendar events are loading', () => {
     mockUseFindManyRecords.mockReturnValue(
       createFindManyRecordsResult({ loading: true }),

@@ -57,7 +57,6 @@ export const useSignInUp = (form: UseFormReturn<Form>) => {
     signInWithCredentials,
     signUpWithCredentialsInWorkspace,
     signUpWithCredentials,
-    checkUserExists: { checkUserExistsQuery },
   } = useAuth();
 
   const { readCaptchaToken } = useReadCaptchaToken();
@@ -69,52 +68,15 @@ export const useSignInUp = (form: UseFormReturn<Form>) => {
     setSignInUpStep(SignInUpStep.Email);
   }, [setSignInUpStep]);
 
-  const errorMsgUserAlreadyExist = t`An error occurred while checking user existence`;
-  const continueWithCredentials = useCallback(async () => {
+  const continueWithCredentials = useCallback(() => {
     if (!form.getValues('email')) {
       return enqueueErrorSnackBar({
         message: t`Email is required`,
       });
     }
-    if (!isCaptchaReady) {
-      return enqueueErrorSnackBar({
-        message: t`Captcha (anti-bot check) is still loading, try again`,
-      });
-    }
-    try {
-      const token = readCaptchaToken();
-
-      const { data, error } = await checkUserExistsQuery({
-        variables: {
-          email: form.getValues('email').toLowerCase().trim(),
-          captchaToken: token,
-        },
-      });
-
-      if (isDefined(error)) {
-        return enqueueErrorSnackBar({ apolloError: error });
-      }
-
-      setSignInUpMode(
-        data?.checkUserExists.exists
-          ? SignInUpMode.SignIn
-          : SignInUpMode.SignUp,
-      );
-      setSignInUpStep(SignInUpStep.Password);
-    } catch {
-      enqueueErrorSnackBar({ message: errorMsgUserAlreadyExist });
-    }
-  }, [
-    readCaptchaToken,
-    form,
-    isCaptchaReady,
-    enqueueErrorSnackBar,
-    t,
-    checkUserExistsQuery,
-    setSignInUpMode,
-    setSignInUpStep,
-    errorMsgUserAlreadyExist,
-  ]);
+    setSignInUpMode(SignInUpMode.SignIn);
+    setSignInUpStep(SignInUpStep.Password);
+  }, [form, enqueueErrorSnackBar, t, setSignInUpMode, setSignInUpStep]);
 
   const submitCredentials: SubmitHandler<Form> = useCallback(
     async (data) => {
@@ -211,6 +173,7 @@ export const useSignInUp = (form: UseFormReturn<Form>) => {
     isInviteMode,
     signInUpStep,
     signInUpMode,
+    setSignInUpMode,
     continueWithCredentials,
     continueWithEmail,
     submitCredentials,

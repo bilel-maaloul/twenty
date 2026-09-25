@@ -2,12 +2,14 @@ import {
   GetAuthTokensFromLoginTokenDocument,
   GetCurrentUserDocument,
   GetLoginTokenFromCredentialsDocument,
+  SignInDocument,
   SignUpDocument,
   SignUpInWorkspaceDocument,
 } from '~/generated-metadata/graphql';
 
 export const queries = {
   getLoginTokenFromCredentials: GetLoginTokenFromCredentialsDocument,
+  signIn: SignInDocument,
   getAuthTokensFromLoginToken: GetAuthTokensFromLoginTokenDocument,
   signup: SignUpDocument,
   getCurrentUser: GetCurrentUserDocument,
@@ -26,6 +28,7 @@ export const variables = {
     password,
     origin,
   },
+  signIn: { email, password },
   getAuthTokensFromLoginToken: { loginToken: token, origin },
   signup: {
     email,
@@ -44,10 +47,27 @@ export const variables = {
 
 export const results = {
   getLoginTokenFromCredentials: {
+    __typename: 'LoginToken',
+    requiresFirstPasswordCreation: false,
     loginToken: {
+      __typename: 'AuthToken',
       token,
       expiresAt: '2022-01-01',
-    },
+    } as { __typename: string; token: string; expiresAt: string } | null,
+  },
+  signIn: {
+    __typename: 'AvailableWorkspacesAndAccessTokens',
+    requiresFirstPasswordCreation: false,
+    availableWorkspaces: {
+      __typename: 'AvailableWorkspaces',
+      availableWorkspacesForSignIn: [],
+      availableWorkspacesForSignUp: [],
+    } as {
+      __typename: string;
+      availableWorkspacesForSignIn: [];
+      availableWorkspacesForSignUp: [];
+    } | null,
+    tokens: null,
   },
   getAuthTokensFromLoginToken: {
     tokens: {
@@ -57,7 +77,7 @@ export const results = {
   },
   signUp: { loginToken: { token, expiresAt: 'expiresAt' } },
   signUpInWorkspace: {
-    loginToken: { token, expiresAt: 'expiresAt' },
+    loginToken: { __typename: 'AuthToken', token, expiresAt: 'expiresAt' },
     workspace: {
       id: 'workspace-id',
       workspaceUrls: {
@@ -68,6 +88,7 @@ export const results = {
   },
   getCurrentUser: {
     currentUser: {
+      __typename: 'User',
       id: 'id',
       firstName: 'firstName',
       lastName: 'lastName',
@@ -85,7 +106,11 @@ export const results = {
         avatarUrl: 'avatarUrl',
         locale: 'locale',
       },
-      availableWorkspaces: [],
+      availableWorkspaces: {
+        __typename: 'AvailableWorkspaces',
+        availableWorkspacesForSignIn: [],
+        availableWorkspacesForSignUp: [],
+      },
       currentWorkspace: {
         id: 'id',
         displayName: 'displayName',
@@ -110,6 +135,10 @@ export const results = {
 };
 
 export const mocks = {
+  signIn: {
+    request: { query: queries.signIn, variables: variables.signIn },
+    result: jest.fn(() => ({ data: { signIn: results.signIn } })),
+  },
   getLoginTokenFromCredentials: {
     request: {
       query: queries.getLoginTokenFromCredentials,

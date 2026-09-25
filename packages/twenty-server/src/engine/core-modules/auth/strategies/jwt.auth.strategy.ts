@@ -20,12 +20,14 @@ import { type JwtPayload } from 'src/engine/core-modules/auth/types/jwt-payload.
 import { JwtTokenTypeEnum } from 'src/engine/core-modules/auth/types/jwt-token-type.enum';
 import { type PlaygroundTokenJwtPayload } from 'src/engine/core-modules/auth/types/playground-token-jwt-payload.type';
 import { type WorkspaceAgnosticTokenJwtPayload } from 'src/engine/core-modules/auth/types/workspace-agnostic-token-jwt-payload.type';
+import { assertUserCredentialIsValid } from 'src/engine/core-modules/auth/utils/assert-user-credential-is-valid.util';
 import { IMPERSONATION_DENIAL_BY_REASON } from 'src/engine/core-modules/impersonation/constants/impersonation-denial-by-reason.constant';
 import { ImpersonationAuthorizationService } from 'src/engine/core-modules/impersonation/services/impersonation-authorization.service';
 import { JWT_SUPPORTED_VERIFY_ALGORITHMS } from 'src/engine/core-modules/jwt/constants/jwt-algorithm.constant';
 import { JwtWrapperService } from 'src/engine/core-modules/jwt/services/jwt-wrapper.service';
 import { type FlatUserWorkspace } from 'src/engine/core-modules/user-workspace/types/flat-user-workspace.type';
 import { UserWorkspaceEntity } from 'src/engine/core-modules/user-workspace/user-workspace.entity';
+import { UserEntity } from 'src/engine/core-modules/user/user.entity';
 import { type FlatWorkspace } from 'src/engine/core-modules/workspace/types/flat-workspace.type';
 import { fromWorkspaceEntityToFlat } from 'src/engine/core-modules/workspace/utils/from-workspace-entity-to-flat.util';
 import { isWorkspaceDeletionRequestPending } from 'src/engine/core-modules/workspace/utils/is-workspace-deletion-request-pending.util';
@@ -44,6 +46,8 @@ export class JwtAuthStrategy extends PassportStrategy(Strategy, 'jwt') {
     private readonly workspaceCacheService: WorkspaceCacheService,
     private readonly coreEntityCacheService: CoreEntityCacheService,
     private readonly impersonationAuthorizationService: ImpersonationAuthorizationService,
+    @InjectRepository(UserEntity)
+    private readonly userRepository: Repository<UserEntity>,
     @InjectRepository(WorkspaceEntity)
     private readonly workspaceRepository: Repository<WorkspaceEntity>,
   ) {
@@ -165,7 +169,11 @@ export class JwtAuthStrategy extends PassportStrategy(Strategy, 'jwt') {
       ),
     );
 
-    user = userContext.user;
+    user = await this.validateUserCredentialState(
+      userContext.user,
+      userId,
+      payload.credentialEpoch,
+    );
 
     context = {
       ...context,
@@ -246,6 +254,92 @@ export class JwtAuthStrategy extends PassportStrategy(Strategy, 'jwt') {
     return { user, userWorkspace };
   }
 
+  private async refreshIncompleteUserCredentialState(
+    user: AuthContextUser,
+    userId: string,
+  ): Promise<AuthContextUser> {
+    if (this.hasCompleteUserCredentialState(user)) {
+      return user;
+    }
+
+    await this.coreEntityCacheService.invalidateAndRecompute('user', userId);
+
+    const refreshedUser = await this.coreEntityCacheService.get('user', userId);
+
+    if (!isDefined(refreshedUser)) {
+      throw new AuthException(
+        'User not found',
+        AuthExceptionCode.USER_NOT_FOUND,
+      );
+    }
+
+    if (!this.hasCompleteUserCredentialState(refreshedUser)) {
+      throw new AuthException(
+        'User authentication state is incomplete',
+        AuthExceptionCode.UNAUTHENTICATED,
+      );
+    }
+
+    return refreshedUser;
+  }
+
+  private hasCompleteUserCredentialState(user: AuthContextUser): boolean {
+    return (
+      typeof user.disabled === 'boolean' &&
+      typeof user.mustChangePassword === 'boolean' &&
+      Number.isSafeInteger(user.credentialEpoch) &&
+      user.credentialEpoch >= 0
+    );
+  }
+
+  private async validateUserCredentialState(
+    cachedUser: AuthContextUser,
+    userId: string,
+    credentialEpoch?: number,
+  ): Promise<AuthContextUser> {
+    const userWithCompleteCacheState =
+      await this.refreshIncompleteUserCredentialState(cachedUser, userId);
+
+    // CoreEntityCacheService invalidation is not atomic with the UserEntity
+    // update. Read this small security-sensitive state directly so a complete
+    // but stale Redis FlatUser cannot keep a pre-rotation credential valid.
+    const authoritativeUser = await this.userRepository.findOne({
+      where: { id: userId },
+      select: {
+        id: true,
+        disabled: true,
+        mustChangePassword: true,
+        credentialEpoch: true,
+      },
+    });
+
+    assertIsDefinedOrThrow(
+      authoritativeUser,
+      new AuthException('User not found', AuthExceptionCode.USER_NOT_FOUND),
+    );
+
+    if (
+      typeof authoritativeUser.disabled !== 'boolean' ||
+      typeof authoritativeUser.mustChangePassword !== 'boolean' ||
+      !Number.isSafeInteger(authoritativeUser.credentialEpoch) ||
+      authoritativeUser.credentialEpoch < 0
+    ) {
+      throw new AuthException(
+        'User authentication state is incomplete',
+        AuthExceptionCode.UNAUTHENTICATED,
+      );
+    }
+
+    assertUserCredentialIsValid(authoritativeUser, credentialEpoch);
+
+    return {
+      ...userWithCompleteCacheState,
+      disabled: authoritativeUser.disabled,
+      mustChangePassword: authoritativeUser.mustChangePassword,
+      credentialEpoch: authoritativeUser.credentialEpoch,
+    };
+  }
+
   private async validateImpersonation(payload: AccessTokenJwtPayload) {
     if (
       !payload.impersonatorUserWorkspaceId ||
@@ -319,11 +413,20 @@ export class JwtAuthStrategy extends PassportStrategy(Strategy, 'jwt') {
   private async validateWorkspaceAgnosticToken(
     payload: WorkspaceAgnosticTokenJwtPayload,
   ): Promise<AuthContext> {
-    const user = await this.coreEntityCacheService.get('user', payload.sub);
+    const cachedUser = await this.coreEntityCacheService.get(
+      'user',
+      payload.sub,
+    );
 
     assertIsDefinedOrThrow(
-      user,
+      cachedUser,
       new AuthException('User not found', AuthExceptionCode.USER_NOT_FOUND),
+    );
+
+    const user = await this.validateUserCredentialState(
+      cachedUser,
+      payload.sub,
+      payload.credentialEpoch,
     );
 
     return { user, authProvider: payload.authProvider };

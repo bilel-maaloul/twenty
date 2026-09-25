@@ -28,6 +28,12 @@ const PasswordReset = lazy(() =>
   })),
 );
 
+const FirstPasswordCreation = lazy(() =>
+  import('~/pages/auth/FirstPasswordCreation').then((module) => ({
+    default: module.FirstPasswordCreation,
+  })),
+);
+
 const createRootAppRouter = () =>
   createBrowserRouter(
     createRoutesFromElements(
@@ -53,6 +59,14 @@ const createRootAppRouter = () =>
           </Route>
         </Route>
         <Route element={<AuthFlowLayout />}>
+          <Route
+            path={AppPath.CreateFirstPassword}
+            element={
+              <LazyRoute fallback={null}>
+                <FirstPasswordCreation />
+              </LazyRoute>
+            }
+          />
           <Route path={AppPath.VerifyEmail} element={<VerifyEmail />} />
           <Route
             path={AppPath.ResetPassword}

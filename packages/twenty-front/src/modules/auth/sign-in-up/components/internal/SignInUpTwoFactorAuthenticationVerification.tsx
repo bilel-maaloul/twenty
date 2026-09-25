@@ -15,6 +15,7 @@ import {
   StyledTwoFactorMainContent,
 } from '@/auth/sign-in-up/components/internal/SignInUpTwoFactorAuthenticationStyles';
 import { useReadCaptchaToken } from '@/captcha/hooks/useReadCaptchaToken';
+import { CaptchaCheckbox } from '@/captcha/components/CaptchaCheckbox';
 import { ONBOARDING_CONTENT_BLOCK_WIDTH } from '@/onboarding/constants/OnboardingContentBlockWidth';
 import { useCaptcha } from '@/client-config/hooks/useCaptcha';
 import { useSnackBar } from '@/ui/feedback/snack-bar-manager/hooks/useSnackBar';
@@ -27,6 +28,7 @@ import { MainButton } from 'twenty-ui/input';
 import { ClickToActionLink } from 'twenty-ui/navigation';
 import { themeCssVariables } from 'twenty-ui/theme-constants';
 import { useNavigateApp } from '~/hooks/useNavigateApp';
+import { isGraphqlErrorOfType } from '~/utils/is-graphql-error-of-type.util';
 import { useAtomStateValue } from '@/ui/utilities/state/jotai/hooks/useAtomStateValue';
 import { useSetAtomState } from '@/ui/utilities/state/jotai/hooks/useSetAtomState';
 
@@ -199,15 +201,19 @@ export const SignInUpTOTPVerification = () => {
       }
 
       await getAuthTokensFromOTP(values.otp, loginToken, captchaToken);
-    } catch {
+    } catch (error) {
       form.setValue('otp', '');
 
-      enqueueErrorSnackBar({
-        message: t`Invalid verification code. Please try again.`,
-        options: {
-          dedupeKey: 'invalid-otp-dedupe-key',
-        },
-      });
+      if (isGraphqlErrorOfType(error, 'INVALID_CAPTCHA')) {
+        enqueueErrorSnackBar({ apolloError: error });
+      } else {
+        enqueueErrorSnackBar({
+          message: t`Invalid verification code. Please try again.`,
+          options: {
+            dedupeKey: 'invalid-otp-dedupe-key',
+          },
+        });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -263,12 +269,13 @@ export const SignInUpTOTPVerification = () => {
           )}
         />
       </StyledTwoFactorMainContent>
+      <CaptchaCheckbox challengeKey="two-factor" />
       <MainButton
         title={t`Submit`}
         type="submit"
         variant="primary"
         fullWidth
-        disabled={isLoading}
+        disabled={isLoading || !isCaptchaReady}
       />
       <StyledActionBackLinkContainer>
         <ClickToActionLink onClick={handleBack}>

@@ -2,6 +2,7 @@ import { registerEnumType } from '@nestjs/graphql';
 
 export enum CaptchaDriverType {
   GOOGLE_RECAPTCHA = 'GOOGLE_RECAPTCHA',
+  GOOGLE_RECAPTCHA_V_2_CHECKBOX = 'GOOGLE_RECAPTCHA_V_2_CHECKBOX',
   TURNSTILE = 'TURNSTILE',
 }
 

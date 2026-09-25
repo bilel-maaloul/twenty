@@ -15,4 +15,16 @@ export class EmailSenderService implements EmailDriverInterface {
 
     await driver.send(sendMailOptions);
   }
+
+  async verifySensitiveDelivery(): Promise<void> {
+    const driver = this.emailDriverFactory.getSensitiveSmtpDriver();
+
+    await driver.verifySensitiveDelivery();
+  }
+
+  async sendSensitive(sendMailOptions: SendMailOptions): Promise<void> {
+    const driver = this.emailDriverFactory.getSensitiveSmtpDriver();
+
+    await driver.sendSensitive(sendMailOptions);
+  }
 }

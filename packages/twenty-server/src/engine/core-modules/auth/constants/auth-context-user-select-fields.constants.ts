@@ -7,6 +7,8 @@ export const AUTH_CONTEXT_USER_SELECT_FIELDS = [
   'email',
   'isEmailVerified',
   'disabled',
+  'mustChangePassword',
+  'credentialEpoch',
   'canImpersonate',
   'canAccessFullAdminPanel',
   'createdAt',

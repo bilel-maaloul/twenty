@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import crypto, { randomUUID } from 'node:crypto';
@@ -12,6 +12,7 @@ import { AppPath, ConnectedAccountProvider } from 'twenty-shared/types';
 import { isNonEmptyString } from '@sniptt/guards';
 import { assertIsDefinedOrThrow, isDefined } from 'twenty-shared/utils';
 import { IsNull, Repository } from 'typeorm';
+import { CoreEntityCacheService } from 'src/engine/core-entity-cache/services/core-entity-cache.service';
 
 import {
   AppTokenEntity,
@@ -75,10 +76,20 @@ import { workspaceValidator } from 'src/engine/core-modules/workspace/workspace.
 import { assertIssuerIsPublishedOrThrow } from 'src/engine/core-modules/auth/utils/assert-issuer-is-published.util';
 import { PermissionsService } from 'src/engine/metadata-modules/permissions/permissions.service';
 import { isEmailInApprovedAccessDomains } from 'src/engine/core-modules/approved-access-domain/utils/is-email-in-approved-access-domains.util';
+import { assertUserCanAuthenticate } from 'src/engine/core-modules/auth/utils/assert-user-credential-is-valid.util';
+
+const createInvalidLoginCredentialsException = () =>
+  new AuthException(
+    'Invalid email or password',
+    AuthExceptionCode.FORBIDDEN_EXCEPTION,
+    { userFriendlyMessage: msg`Invalid email or password.` },
+  );
 
 @Injectable()
 // oxlint-disable-next-line twenty/inject-workspace-repository
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly accessTokenService: AccessTokenService,
     private readonly ssoExchangeTokenService: SsoExchangeTokenService,
@@ -107,6 +118,7 @@ export class AuthService {
     private readonly featureFlagService: FeatureFlagService,
     private readonly createSsoConnectedAccountService: CreateSsoConnectedAccountService,
     private readonly userSessionService: UserSessionService,
+    private readonly coreEntityCacheService: CoreEntityCacheService,
   ) {}
 
   private async checkAccessAndUseInvitationOrThrow(
@@ -163,10 +175,24 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new AuthException(
-        'User not found',
-        AuthExceptionCode.USER_NOT_FOUND,
-      );
+      // Keep unknown-email failures comparable to wrong-password failures.
+      await hashPassword('invalid-login-attempt');
+      throw createInvalidLoginCredentialsException();
+    }
+
+    if (!user.passwordHash) {
+      await hashPassword('invalid-login-attempt');
+      throw createInvalidLoginCredentialsException();
+    }
+
+    const isValid = await compareHash(input.password, user.passwordHash);
+
+    if (!isValid) {
+      throw createInvalidLoginCredentialsException();
+    }
+
+    if (user.disabled) {
+      assertUserCanAuthenticate(user);
     }
 
     if (targetWorkspace && !targetWorkspace.isPasswordAuthEnabled) {
@@ -184,35 +210,45 @@ export class AuthService {
       }
     }
 
-    if (targetWorkspace) {
+    if (
+      targetWorkspace &&
+      user.mustChangePassword &&
+      !(await this.userWorkspaceService.checkUserWorkspaceExists(
+        user.id,
+        targetWorkspace.id,
+      ))
+    ) {
+      throw new AuthException(
+        'User is not a member of the workspace.',
+        AuthExceptionCode.FORBIDDEN_EXCEPTION,
+      );
+    }
+
+    if (targetWorkspace && !user.mustChangePassword) {
       await this.checkAccessAndUseInvitationOrThrow(targetWorkspace, user);
     }
 
-    if (!user.passwordHash) {
-      throw new AuthException(
-        'Incorrect login method',
-        AuthExceptionCode.INVALID_INPUT,
-        {
-          userFriendlyMessage: msg`User was not created with email/password`,
-        },
-      );
+    if (user.mustChangePassword) {
+      const expiresAt = user.temporaryPasswordExpiresAt;
+
+      if (
+        !(expiresAt instanceof Date) ||
+        !Number.isFinite(expiresAt.getTime()) ||
+        expiresAt.getTime() <= Date.now()
+      ) {
+        throw new AuthException(
+          'Temporary password is invalid or expired',
+          AuthExceptionCode.FORBIDDEN_EXCEPTION,
+        );
+      }
+
+      return { kind: 'firstPasswordCreation' as const, user };
     }
 
-    const isValid = await compareHash(input.password, user.passwordHash);
-
-    if (!isValid) {
-      throw new AuthException(
-        'Wrong password',
-        AuthExceptionCode.FORBIDDEN_EXCEPTION,
-        {
-          userFriendlyMessage: msg`Wrong password.`,
-        },
-      );
-    }
-
+    assertUserCanAuthenticate(user);
     await this.checkIsEmailVerified(user.isEmailVerified);
 
-    return user;
+    return { kind: 'normal' as const, user };
   }
 
   async checkIsEmailVerified(isEmailVerified: boolean) {
@@ -717,49 +753,89 @@ export class AuthService {
 
     await this.userRepository.update(userId, {
       passwordHash: newPasswordHash,
+      credentialEpoch: () => '"credentialEpoch" + 1',
     });
 
-    await this.appTokenRepository.update(
-      {
-        userId,
-        type: AppTokenType.RefreshToken,
-        revokedAt: IsNull(),
-      },
-      {
-        revokedAt: new Date(),
-      },
-    );
+    await this.invalidateCredentialsAfterPasswordChange(userId);
 
-    await this.userSessionService.revokeAllSessionsForUser({
-      userId,
-      reason: UserSessionRevokedReason.PasswordChanged,
-    });
+    try {
+      const emailTemplate = PasswordUpdateNotifyEmail({
+        userName: `${user.firstName} ${user.lastName}`,
+        email: user.email,
+        link: this.domainServerConfigService.getBaseUrl().toString(),
+        locale: firstUserWorkspace.locale,
+      });
 
-    const emailTemplate = PasswordUpdateNotifyEmail({
-      userName: `${user.firstName} ${user.lastName}`,
-      email: user.email,
-      link: this.domainServerConfigService.getBaseUrl().toString(),
-      locale: firstUserWorkspace.locale,
-    });
+      const html = await renderEmail(emailTemplate, { pretty: true });
+      const text = await renderEmail(emailTemplate, { plainText: true });
 
-    const html = await renderEmail(emailTemplate, { pretty: true });
-    const text = await renderEmail(emailTemplate, { plainText: true });
+      const passwordChangedMsg = msg`Your Password Has Been Successfully Changed`;
+      const i18n = this.i18nService.getI18nInstance(firstUserWorkspace.locale);
+      const subject = i18n._(passwordChangedMsg);
 
-    const passwordChangedMsg = msg`Your Password Has Been Successfully Changed`;
-    const i18n = this.i18nService.getI18nInstance(firstUserWorkspace.locale);
-    const subject = i18n._(passwordChangedMsg);
-
-    await this.emailService.send({
-      from: `${this.twentyConfigService.get(
-        'EMAIL_FROM_NAME',
-      )} <${this.twentyConfigService.get('EMAIL_FROM_ADDRESS')}>`,
-      to: user.email,
-      subject,
-      text,
-      html,
-    });
+      await this.emailService.send({
+        from: `${this.twentyConfigService.get(
+          'EMAIL_FROM_NAME',
+        )} <${this.twentyConfigService.get('EMAIL_FROM_ADDRESS')}>`,
+        to: user.email,
+        subject,
+        text,
+        html,
+      });
+    } catch {
+      this.logger.error(
+        `Password changed for user ${userId}, but the notification email failed.`,
+      );
+    }
 
     return { success: true };
+  }
+
+  async invalidateCredentialsAfterPasswordChange(
+    userId: string,
+  ): Promise<void> {
+    const postCommitOperations = [
+      {
+        name: 'user cache invalidation',
+        run: () => this.coreEntityCacheService.invalidate('user', userId),
+      },
+      {
+        name: 'refresh-token revocation',
+        run: () =>
+          this.appTokenRepository.update(
+            {
+              userId,
+              type: AppTokenType.RefreshToken,
+              revokedAt: IsNull(),
+            },
+            {
+              revokedAt: new Date(),
+            },
+          ),
+      },
+      {
+        name: 'user-session revocation',
+        run: () =>
+          this.userSessionService.revokeAllSessionsForUser({
+            userId,
+            reason: UserSessionRevokedReason.PasswordChanged,
+          }),
+      },
+    ];
+
+    const postCommitResults = await Promise.allSettled(
+      postCommitOperations.map(async ({ run }) => run()),
+    );
+
+    postCommitResults.forEach((result, index) => {
+      const operation = postCommitOperations[index];
+
+      if (result.status === 'rejected' && operation) {
+        this.logger.error(
+          `Password changed for user ${userId}, but ${operation.name} failed.`,
+        );
+      }
+    });
   }
 
   async findWorkspaceFromInviteHashOrFail(

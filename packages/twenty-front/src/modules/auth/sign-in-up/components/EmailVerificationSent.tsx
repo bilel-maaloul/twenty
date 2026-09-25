@@ -112,7 +112,7 @@ export const EmailVerificationSent = ({
   const title = isError ? t`Email Verification Failed` : t`Check your Emails`;
   const subtitle = isError
     ? t`We encountered an issue verifying`
-    : t`A verification email has been sent to`;
+    : t`Verify the email address for`;
 
   const Icon = isError ? IconMailX : IconMail;
 

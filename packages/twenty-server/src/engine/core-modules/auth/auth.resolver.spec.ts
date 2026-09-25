@@ -1,10 +1,18 @@
 import { type CanActivate, Logger } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { LazyMetadataStorage } from '@nestjs/graphql/dist/schema-builder/storages/lazy-metadata.storage';
+import { TypeMetadataStorage } from '@nestjs/graphql/dist/schema-builder/storages/type-metadata.storage';
 
 import { ApiKeyService } from 'src/engine/core-modules/api-key/services/api-key.service';
 import { AppTokenEntity } from 'src/engine/core-modules/app-token/app-token.entity';
-import { AuthExceptionCode } from 'src/engine/core-modules/auth/auth.exception';
+import {
+  AuthException,
+  AuthExceptionCode,
+} from 'src/engine/core-modules/auth/auth.exception';
+import { AvailableWorkspacesAndAccessTokensDTO } from 'src/engine/core-modules/auth/dto/available-workspaces-and-access-tokens.dto';
+import { CreateFirstPasswordInput } from 'src/engine/core-modules/auth/dto/create-first-password.input';
+import { LoginTokenDTO } from 'src/engine/core-modules/auth/dto/login-token.dto';
 import { EventLogEmitterService } from 'src/engine/core-modules/event-logs/emit/event-log-emitter.service';
 import { ImpersonationAuthorizationService } from 'src/engine/core-modules/impersonation/services/impersonation-authorization.service';
 import { SignInUpService } from 'src/engine/core-modules/auth/services/sign-in-up.service';
@@ -13,6 +21,11 @@ import { RefreshTokenService } from 'src/engine/core-modules/auth/token/services
 import { SsoExchangeTokenService } from 'src/engine/core-modules/auth/token/services/sso-exchange-token.service';
 import { WorkspaceAgnosticTokenService } from 'src/engine/core-modules/auth/token/services/workspace-agnostic-token.service';
 import { CaptchaGuard } from 'src/engine/core-modules/captcha/captcha.guard';
+import { FirstPasswordCookieService } from 'src/engine/core-modules/auth/services/first-password-cookie.service';
+import {
+  FirstPasswordCreationService,
+  FirstPasswordInputRejectedException,
+} from 'src/engine/core-modules/auth/services/first-password-creation.service';
 import { EmailPasswordResetLinkInput } from 'src/engine/core-modules/auth/dto/email-password-reset-link.input';
 import { type I18nContext } from 'src/engine/core-modules/i18n/types/i18n-context.type';
 import {
@@ -40,6 +53,7 @@ import { PermissionsService } from 'src/engine/metadata-modules/permissions/perm
 import { AuthResolver } from './auth.resolver';
 
 import { AuthService } from './services/auth.service';
+import { ResolverValidationPipe } from 'src/engine/core-modules/graphql/pipes/resolver-validation.pipe';
 import { ResetPasswordService } from './services/reset-password.service';
 import { EmailVerificationTokenService } from './token/services/email-verification-token.service';
 import { LoginTokenService } from './token/services/login-token.service';
@@ -50,6 +64,7 @@ describe('AuthResolver', () => {
   let resolver: AuthResolver;
   let appTokenRepository: { remove: jest.Mock };
   let authService: {
+    validateLoginWithPassword: jest.Mock;
     checkAccessForSignIn: jest.Mock;
     findWorkspaceForSignInUp: jest.Mock;
     formatUserDataPayload: jest.Mock;
@@ -73,6 +88,25 @@ describe('AuthResolver', () => {
     getWorkspaceByOriginOrDefaultWorkspace: jest.Mock;
     getWorkspaceUrls: jest.Mock;
   };
+  let firstPasswordCookieService: {
+    assertAllowedOrigin: jest.Mock;
+    attachCapability: jest.Mock;
+    extractCapability: jest.Mock;
+    clearCapability: jest.Mock;
+  };
+  let firstPasswordCreationService: {
+    issueCapability: jest.Mock;
+    createPermanentPassword: jest.Mock;
+  };
+  let refreshTokenService: { generateRefreshToken: jest.Mock };
+  let workspaceAgnosticTokenService: {
+    generateWorkspaceAgnosticToken: jest.Mock;
+  };
+  let userWorkspaceService: {
+    findAvailableWorkspacesByEmail: jest.Mock;
+    setLoginTokenToAvailableWorkspacesWhenAuthProviderMatch: jest.Mock;
+  };
+  let userSessionService: { issueSessionForTokenPair: jest.Mock };
   const mock_CaptchaGuard: CanActivate = { canActivate: jest.fn(() => true) };
 
   beforeEach(async () => {
@@ -96,6 +130,7 @@ describe('AuthResolver', () => {
         {
           provide: AuthService,
           useValue: {
+            validateLoginWithPassword: jest.fn(),
             checkAccessForSignIn: jest.fn(),
             findWorkspaceForSignInUp: jest.fn(),
             formatUserDataPayload: jest.fn(),
@@ -104,7 +139,7 @@ describe('AuthResolver', () => {
         },
         {
           provide: RefreshTokenService,
-          useValue: {},
+          useValue: { generateRefreshToken: jest.fn() },
         },
         {
           provide: UserService,
@@ -141,6 +176,22 @@ describe('AuthResolver', () => {
         {
           provide: UserSessionCookieService,
           useValue: {},
+        },
+        {
+          provide: FirstPasswordCookieService,
+          useValue: {
+            assertAllowedOrigin: jest.fn(),
+            attachCapability: jest.fn(),
+            extractCapability: jest.fn(),
+            clearCapability: jest.fn(),
+          },
+        },
+        {
+          provide: FirstPasswordCreationService,
+          useValue: {
+            issueCapability: jest.fn(),
+            createPermanentPassword: jest.fn(),
+          },
         },
         {
           provide: UserWorkspaceService,
@@ -255,6 +306,8 @@ describe('AuthResolver', () => {
     resolver = module.get<AuthResolver>(AuthResolver);
     appTokenRepository = module.get(getRepositoryToken(AppTokenEntity));
     authService = module.get(AuthService);
+    firstPasswordCookieService = module.get(FirstPasswordCookieService);
+    firstPasswordCreationService = module.get(FirstPasswordCreationService);
     emailVerificationService = module.get(EmailVerificationService);
     emailVerificationTokenService = module.get(EmailVerificationTokenService);
     loginTokenService = module.get(LoginTokenService);
@@ -264,10 +317,389 @@ describe('AuthResolver', () => {
     throttlerService = module.get<ThrottlerService>(ThrottlerService);
     userService = module.get(UserService);
     workspaceDomainsService = module.get(WorkspaceDomainsService);
+    refreshTokenService = module.get(RefreshTokenService);
+    workspaceAgnosticTokenService = module.get(WorkspaceAgnosticTokenService);
+    userWorkspaceService = module.get(UserWorkspaceService);
+    userSessionService = module.get(UserSessionService);
   });
 
   it('should be defined', () => {
     expect(resolver).toBeDefined();
+  });
+
+  describe('restricted first-password login', () => {
+    const user = {
+      id: 'first-user',
+      email: 'first@example.com',
+      mustChangePassword: true,
+    };
+    const credentials = {
+      email: user.email,
+      password: 'temporary-password',
+      captchaToken: 'valid-captcha',
+    };
+    const response = {};
+    const context = {
+      req: {
+        res: response,
+        ip: '203.0.113.42',
+        headers: { origin: 'https://front.example.com' },
+      },
+    };
+
+    beforeEach(() => {
+      authService.validateLoginWithPassword.mockResolvedValue({
+        kind: 'firstPasswordCreation',
+        user,
+      });
+      firstPasswordCreationService.issueCapability.mockResolvedValue({
+        capability: 'opaque-capability',
+        expiresAt: new Date('2026-09-24T12:05:00.000Z'),
+      });
+      workspaceDomainsService.getWorkspaceByOriginOrDefaultWorkspace.mockResolvedValue(
+        {
+          id: 'workspace-id',
+        },
+      );
+    });
+
+    it('preserves both existing GraphQL login result type names', () => {
+      LazyMetadataStorage.load([AuthResolver]);
+
+      const mutations = TypeMetadataStorage.getMutationsMetadata();
+      const signInMutation = mutations.find(
+        (mutation) => mutation.methodName === 'signIn',
+      );
+      const workspaceLoginMutation = mutations.find(
+        (mutation) => mutation.methodName === 'getLoginTokenFromCredentials',
+      );
+
+      expect(signInMutation?.typeFn()).toBe(
+        AvailableWorkspacesAndAccessTokensDTO,
+      );
+      expect(
+        TypeMetadataStorage.getObjectTypeMetadataByTarget(
+          AvailableWorkspacesAndAccessTokensDTO,
+        )?.name,
+      ).toBe('AvailableWorkspacesAndAccessTokens');
+      expect(workspaceLoginMutation?.typeFn()).toBe(LoginTokenDTO);
+      expect(
+        TypeMetadataStorage.getObjectTypeMetadataByTarget(LoginTokenDTO)?.name,
+      ).toBe('LoginToken');
+    });
+
+    it('preserves normal global sign-in values and returns false for the restricted signal', async () => {
+      authService.validateLoginWithPassword.mockResolvedValue({
+        kind: 'normal',
+        user,
+      });
+      userWorkspaceService.findAvailableWorkspacesByEmail.mockResolvedValue([
+        { id: 'workspace-id' },
+      ]);
+      userWorkspaceService.setLoginTokenToAvailableWorkspacesWhenAuthProviderMatch.mockResolvedValue(
+        { workspaces: [{ id: 'workspace-id' }] },
+      );
+      workspaceAgnosticTokenService.generateWorkspaceAgnosticToken.mockResolvedValue(
+        { token: 'access-token' },
+      );
+      refreshTokenService.generateRefreshToken.mockResolvedValue({
+        token: 'refresh-token',
+      });
+
+      await expect(
+        resolver.signIn(credentials, context as never),
+      ).resolves.toEqual({
+        availableWorkspaces: { workspaces: [{ id: 'workspace-id' }] },
+        tokens: {
+          accessOrWorkspaceAgnosticToken: { token: 'access-token' },
+          refreshToken: { token: 'refresh-token' },
+        },
+        requiresFirstPasswordCreation: false,
+      });
+      expect(userSessionService.issueSessionForTokenPair).toHaveBeenCalledTimes(
+        1,
+      );
+      expect(
+        firstPasswordCreationService.issueCapability,
+      ).not.toHaveBeenCalled();
+      expect(
+        firstPasswordCookieService.attachCapability,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('preserves normal workspace login values and returns false for the restricted signal', async () => {
+      authService.validateLoginWithPassword.mockResolvedValue({
+        kind: 'normal',
+        user,
+      });
+      loginTokenService.generateLoginToken.mockResolvedValue({
+        token: 'normal-login-token',
+      });
+
+      await expect(
+        resolver.getLoginTokenFromCredentials(
+          credentials,
+          'https://workspace.example.com',
+          context as never,
+        ),
+      ).resolves.toEqual({
+        loginToken: { token: 'normal-login-token' },
+        requiresFirstPasswordCreation: false,
+      });
+      expect(
+        firstPasswordCreationService.issueCapability,
+      ).not.toHaveBeenCalled();
+      expect(
+        firstPasswordCookieService.attachCapability,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('returns only the restricted signal from global sign-in', async () => {
+      const result = await resolver.signIn(credentials, context as never);
+
+      expect(result).toEqual({
+        requiresFirstPasswordCreation: true,
+        tokens: null,
+        availableWorkspaces: null,
+      });
+      expect(firstPasswordCookieService.attachCapability).toHaveBeenCalledWith(
+        response,
+        'opaque-capability',
+        expect.any(Date),
+      );
+      expect(JSON.stringify(result)).not.toContain('opaque-capability');
+      expect(loginTokenService.generateLoginToken).not.toHaveBeenCalled();
+      expect(
+        userWorkspaceService.findAvailableWorkspacesByEmail,
+      ).not.toHaveBeenCalled();
+      expect(
+        workspaceAgnosticTokenService.generateWorkspaceAgnosticToken,
+      ).not.toHaveBeenCalled();
+      expect(refreshTokenService.generateRefreshToken).not.toHaveBeenCalled();
+      expect(
+        userSessionService.issueSessionForTokenPair,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('returns no login token from workspace sign-in', async () => {
+      const result = await resolver.getLoginTokenFromCredentials(
+        credentials,
+        'https://workspace.example.com',
+        context as never,
+      );
+
+      expect(result).toEqual({
+        requiresFirstPasswordCreation: true,
+        loginToken: null,
+      });
+      expect(JSON.stringify(result)).not.toContain('workspace-id');
+      expect(loginTokenService.generateLoginToken).not.toHaveBeenCalled();
+      expect(
+        workspaceAgnosticTokenService.generateWorkspaceAgnosticToken,
+      ).not.toHaveBeenCalled();
+      expect(refreshTokenService.generateRefreshToken).not.toHaveBeenCalled();
+      expect(
+        userSessionService.issueSessionForTokenPair,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('consumes the cookie through the dedicated mutation and clears it', async () => {
+      firstPasswordCookieService.extractCapability.mockReturnValue(
+        'opaque-capability',
+      );
+
+      await expect(
+        resolver.createFirstPassword(
+          {
+            newPassword: 'new-password-123',
+            confirmPassword: 'new-password-123',
+          },
+          context as never,
+        ),
+      ).resolves.toBe(true);
+      expect(
+        firstPasswordCreationService.createPermanentPassword,
+      ).toHaveBeenCalledWith(
+        'opaque-capability',
+        'new-password-123',
+        'new-password-123',
+      );
+      expect(firstPasswordCookieService.clearCapability).toHaveBeenCalledWith(
+        response,
+      );
+      expect(throttlerService.tokenBucketThrottleOrThrow).toHaveBeenCalledWith(
+        'first-password-creation:203.0.113.42',
+        1,
+        3,
+        15 * 60 * 1000,
+      );
+      expect(
+        (throttlerService.tokenBucketThrottleOrThrow as jest.Mock).mock
+          .invocationCallOrder[0],
+      ).toBeLessThan(
+        firstPasswordCreationService.createPermanentPassword.mock
+          .invocationCallOrder[0],
+      );
+    });
+
+    it('retains the cookie only for a service-confirmed correctable password error', async () => {
+      firstPasswordCookieService.extractCapability.mockReturnValue(
+        'opaque-capability',
+      );
+      firstPasswordCreationService.createPermanentPassword.mockRejectedValue(
+        new FirstPasswordInputRejectedException(),
+      );
+
+      await expect(
+        resolver.createFirstPassword(
+          {
+            newPassword: 'invalid-password',
+            confirmPassword: 'invalid-password',
+          },
+          context as never,
+        ),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.INVALID_INPUT });
+
+      expect(firstPasswordCookieService.clearCapability).not.toHaveBeenCalled();
+    });
+
+    it('clears the cookie for an unmarked INVALID_INPUT error', async () => {
+      firstPasswordCookieService.extractCapability.mockReturnValue(
+        'opaque-capability',
+      );
+      firstPasswordCreationService.createPermanentPassword.mockRejectedValue(
+        new AuthException('Invalid input', AuthExceptionCode.INVALID_INPUT),
+      );
+
+      await expect(
+        resolver.createFirstPassword(
+          {
+            newPassword: 'new-password-123',
+            confirmPassword: 'new-password-123',
+          },
+          context as never,
+        ),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.INVALID_INPUT });
+
+      expect(firstPasswordCookieService.clearCapability).toHaveBeenCalledWith(
+        response,
+      );
+    });
+
+    it.each([
+      [
+        'invalid capability',
+        new AuthException(
+          'First-password capability is invalid or expired',
+          AuthExceptionCode.FORBIDDEN_EXCEPTION,
+        ),
+      ],
+      [
+        'operational failure',
+        new AuthException(
+          'First-password creation failed',
+          AuthExceptionCode.INTERNAL_SERVER_ERROR,
+        ),
+      ],
+    ])('clears the cookie for %s', async (_name, error) => {
+      firstPasswordCookieService.extractCapability.mockReturnValue(
+        'opaque-capability',
+      );
+      firstPasswordCreationService.createPermanentPassword.mockRejectedValue(
+        error,
+      );
+
+      await expect(
+        resolver.createFirstPassword(
+          {
+            newPassword: 'new-password-123',
+            confirmPassword: 'new-password-123',
+          },
+          context as never,
+        ),
+      ).rejects.toBe(error);
+
+      expect(firstPasswordCookieService.clearCapability).toHaveBeenCalledWith(
+        response,
+      );
+    });
+
+    it('clears the cookie and skips service work when throttled', async () => {
+      (
+        throttlerService.tokenBucketThrottleOrThrow as jest.Mock
+      ).mockRejectedValueOnce(
+        new ThrottlerException(
+          'Limit reached',
+          ThrottlerExceptionCode.LIMIT_REACHED,
+        ),
+      );
+
+      await expect(
+        resolver.createFirstPassword(
+          {
+            newPassword: 'new-password-123',
+            confirmPassword: 'new-password-123',
+          },
+          context as never,
+        ),
+      ).rejects.toMatchObject({
+        code: ThrottlerExceptionCode.LIMIT_REACHED,
+      });
+
+      expect(firstPasswordCookieService.clearCapability).toHaveBeenCalledWith(
+        response,
+      );
+      expect(
+        firstPasswordCreationService.createPermanentPassword,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('fails closed with a sanitized operational error when throttle storage fails', async () => {
+      (
+        throttlerService.tokenBucketThrottleOrThrow as jest.Mock
+      ).mockRejectedValueOnce(new Error('cache backend unavailable'));
+
+      const error = await resolver
+        .createFirstPassword(
+          {
+            newPassword: 'new-password-123',
+            confirmPassword: 'new-password-123',
+          },
+          context as never,
+        )
+        .catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(AuthException);
+      expect(error).toMatchObject({
+        code: AuthExceptionCode.INTERNAL_SERVER_ERROR,
+      });
+      expect((error as AuthException).message).toBe(
+        'First-password creation failed',
+      );
+
+      expect(firstPasswordCookieService.clearCapability).toHaveBeenCalledWith(
+        response,
+      );
+      expect(
+        firstPasswordCreationService.createPermanentPassword,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('leaves capability state untouched when DTO validation rejects before resolver execution', async () => {
+      const validationPipe = new ResolverValidationPipe();
+
+      await expect(
+        validationPipe.transform(
+          { newPassword: '', confirmPassword: '' },
+          { type: 'body', metatype: CreateFirstPasswordInput },
+        ),
+      ).rejects.toBeDefined();
+
+      expect(
+        firstPasswordCreationService.createPermanentPassword,
+      ).not.toHaveBeenCalled();
+      expect(firstPasswordCookieService.clearCapability).not.toHaveBeenCalled();
+    });
   });
 
   describe('password authentication provider propagation', () => {

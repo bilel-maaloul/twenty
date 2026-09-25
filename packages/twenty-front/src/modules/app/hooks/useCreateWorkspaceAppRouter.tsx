@@ -34,6 +34,12 @@ const PasswordReset = lazy(() =>
   })),
 );
 
+const FirstPasswordCreation = lazy(() =>
+  import('~/pages/auth/FirstPasswordCreation').then((module) => ({
+    default: module.FirstPasswordCreation,
+  })),
+);
+
 const Authorize = lazy(() =>
   import('~/pages/auth/Authorize').then((module) => ({
     default: module.Authorize,
@@ -144,6 +150,14 @@ const createWorkspaceAppRouter = ({
             {
               element: <AuthFlowLayout />,
               children: [
+                {
+                  path: AppPath.CreateFirstPassword,
+                  element: (
+                    <LazyRoute fallback={null}>
+                      <FirstPasswordCreation />
+                    </LazyRoute>
+                  ),
+                },
                 { path: AppPath.VerifyEmail, element: <VerifyEmail /> },
                 {
                   path: AppPath.ResetPassword,

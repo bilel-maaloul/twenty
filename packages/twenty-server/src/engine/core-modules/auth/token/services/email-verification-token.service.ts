@@ -99,6 +99,13 @@ export class EmailVerificationTokenService {
       );
     }
 
+    if (appToken.user.mustChangePassword) {
+      throw new EmailVerificationException(
+        'First password creation is required before email verification',
+        EmailVerificationExceptionCode.INVALID_TOKEN,
+      );
+    }
+
     if (appToken.type !== AppTokenType.EmailVerificationToken) {
       throw new EmailVerificationException(
         'Invalid email verification token type',

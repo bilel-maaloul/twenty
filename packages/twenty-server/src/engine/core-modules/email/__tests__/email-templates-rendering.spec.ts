@@ -2,6 +2,7 @@ import { createElement } from 'react';
 
 import {
   BillingSubscriptionRenewingEmail,
+  AdministratorTemporaryPasswordEmail,
   BillingTrialConvertingEmail,
   BillingTrialEndingEmail,
   CleanSuspendedWorkspaceEmail,
@@ -24,6 +25,17 @@ const SENDER = {
 };
 
 const TEMPLATES = [
+  {
+    name: 'AdministratorTemporaryPasswordEmail',
+    element: AdministratorTemporaryPasswordEmail({
+      email: 'jane@example.com',
+      expiresAt: new Date('2026-01-01T12:00:00.000Z'),
+      locale: 'en',
+      temporaryPassword: 'example-temporary-password',
+      userName: 'Jane Doe',
+    }),
+    expectedContent: 'example-temporary-password',
+  },
   {
     name: 'BillingSubscriptionRenewingEmail',
     element: BillingSubscriptionRenewingEmail({
