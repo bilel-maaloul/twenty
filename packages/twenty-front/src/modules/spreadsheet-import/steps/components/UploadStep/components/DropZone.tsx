@@ -147,16 +147,32 @@ export const DropZone = ({ onContinue, isLoading }: DropZoneProps) => {
     },
     onDropAccepted: async ([file]) => {
       setLoading(true);
-      const arrayBuffer = await readFileAsync(file);
-      const workbook = read(arrayBuffer, {
-        cellDates: true,
-        codepage: 65001, // UTF-8 codepage
-        dateNF: dateFormat,
-        raw: parseRaw,
-        dense: true,
-      });
-      setLoading(false);
-      onContinue(workbook, file);
+      try {
+        const arrayBuffer = await readFileAsync(file);
+        const workbook = read(arrayBuffer, {
+          cellDates: true,
+          codepage: 65001, // UTF-8 codepage
+          dateNF: dateFormat,
+          raw: parseRaw,
+          dense: true,
+        });
+
+        if (workbook.SheetNames.length === 0) {
+          throw new Error('No worksheets found');
+        }
+
+        onContinue(workbook, file);
+      } catch (error) {
+        enqueueErrorSnackBar({
+          message: t`${file.name} could not be read. Check that it is a valid CSV, XLS, or XLSX file.`,
+          options: {
+            detailedMessage:
+              error instanceof Error ? error.message : String(error),
+          },
+        });
+      } finally {
+        setLoading(false);
+      }
     },
   });
 

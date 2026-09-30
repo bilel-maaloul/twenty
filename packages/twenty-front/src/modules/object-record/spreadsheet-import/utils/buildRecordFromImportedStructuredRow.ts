@@ -2,6 +2,13 @@ import { type FieldMetadataItem } from '@/object-metadata/types/FieldMetadataIte
 import { isCompositeFieldType } from '@/object-record/object-filter-dropdown/utils/isCompositeFieldType';
 import { type FieldActorForInputValue } from '@/object-record/record-field/ui/types/FieldMetadata';
 import { getCompositeSubFieldKey } from '@/object-record/spreadsheet-import/utils/spreadsheetImportGetCompositeSubFieldKey';
+import { parseAdditionalPhonesFromCSV } from '@/spreadsheet-import/utils/formatAdditionalPhonesForCSV';
+import { parseLinksFromCSV } from '@/spreadsheet-import/utils/formatLinksForCSV';
+import { parseSpreadsheetNumber } from '@/spreadsheet-import/utils/parseSpreadsheetNumber';
+import {
+  parseDateTimeFromCSV,
+  parseStringArrayFromCSV,
+} from '@/spreadsheet-import/utils/spreadsheetValueFormats';
 import {
   type ImportedStructuredRow,
   type SpreadsheetImportFields,
@@ -40,9 +47,20 @@ const buildCompositeFieldRecord = (
           getCompositeSubFieldKey(field, compositeFieldKey)
         ];
 
-      return isDefined(value)
-        ? { ...acc, [compositeFieldKey]: transform?.(value) || value }
-        : acc;
+      if (!isDefined(value)) {
+        return acc;
+      }
+
+      const transformedValue = transform?.(value);
+
+      if (isDefined(transform) && !isDefined(transformedValue)) {
+        return acc;
+      }
+
+      return {
+        ...acc,
+        [compositeFieldKey]: isDefined(transform) ? transformedValue : value,
+      };
     },
     {},
   );
@@ -113,27 +131,21 @@ export const buildRecordFromImportedStructuredRow = ({
   importedStructuredRow,
   spreadsheetImportFields,
 }: BuildRecordFromImportedStructuredRowArgs) => {
-  const stringArrayJSONSchema = z
+  const stringArraySchema = z
     .preprocess((value) => {
       try {
-        if (typeof value !== 'string') {
-          return [];
-        }
-        return JSON.parse(value);
+        return parseStringArrayFromCSV(value);
       } catch {
         return [];
       }
     }, z.array(z.string()))
     .catch([]);
 
-  const linkArrayJSONSchema = z
+  const linkArraySchema = z
     .preprocess(
       (value) => {
         try {
-          if (typeof value !== 'string') {
-            return [];
-          }
-          return JSON.parse(value);
+          return parseLinksFromCSV(value);
         } catch {
           return [];
         }
@@ -147,14 +159,11 @@ export const buildRecordFromImportedStructuredRow = ({
     )
     .catch([]);
 
-  const phoneArrayJSONSchema = z
+  const phoneArraySchema = z
     .preprocess(
       (value) => {
         try {
-          if (typeof value !== 'string') {
-            return [];
-          }
-          return JSON.parse(value);
+          return parseAdditionalPhonesFromCSV(value);
         } catch {
           return [];
         }
@@ -173,9 +182,14 @@ export const buildRecordFromImportedStructuredRow = ({
 
   const COMPOSITE_FIELD_TRANSFORM_CONFIGS = {
     [FieldMetadataType.CURRENCY]: {
-      amountMicros: (value: any) =>
-        convertCurrencyAmountToCurrencyMicros(Number(value)),
-      currencyCode: undefined,
+      amountMicros: (value: any) => {
+        const amount = parseSpreadsheetNumber(value);
+
+        return isDefined(amount)
+          ? convertCurrencyAmountToCurrencyMicros(amount)
+          : undefined;
+      },
+      currencyCode: (value: any) => String(value).toUpperCase(),
     },
     [FieldMetadataType.ADDRESS]: {
       addressStreet1: castToString,
@@ -188,14 +202,14 @@ export const buildRecordFromImportedStructuredRow = ({
     [FieldMetadataType.LINKS]: {
       primaryLinkLabel: castToString,
       primaryLinkUrl: normalizeUrlOrigin,
-      secondaryLinks: linkArrayJSONSchema.parse,
+      secondaryLinks: linkArraySchema.parse,
     },
 
     [FieldMetadataType.PHONES]: {
       primaryPhoneCountryCode: castToString,
       primaryPhoneNumber: castToString,
       primaryPhoneCallingCode: castToString,
-      additionalPhones: phoneArrayJSONSchema.parse,
+      additionalPhones: phoneArraySchema.parse,
     },
 
     [FieldMetadataType.RICH_TEXT]: {
@@ -205,7 +219,7 @@ export const buildRecordFromImportedStructuredRow = ({
 
     [FieldMetadataType.EMAILS]: {
       primaryEmail: (value: unknown) => castToString(value).toLowerCase(),
-      additionalEmails: stringArrayJSONSchema.parse,
+      additionalEmails: stringArraySchema.parse,
     },
     [FieldMetadataType.FULL_NAME]: {
       firstName: undefined,
@@ -327,7 +341,11 @@ export const buildRecordFromImportedStructuredRow = ({
       case FieldMetadataType.NUMBER:
       case FieldMetadataType.NUMERIC:
         if (isDefined(importedFieldValue)) {
-          recordToBuild[field.name] = Number(importedFieldValue);
+          const parsedNumber = parseSpreadsheetNumber(importedFieldValue);
+
+          if (isDefined(parsedNumber)) {
+            recordToBuild[field.name] = parsedNumber;
+          }
         }
         break;
       case FieldMetadataType.RELATION: {
@@ -353,7 +371,7 @@ export const buildRecordFromImportedStructuredRow = ({
       case FieldMetadataType.MULTI_SELECT: {
         if (isDefined(importedFieldValue)) {
           recordToBuild[field.name] =
-            stringArrayJSONSchema.parse(importedFieldValue);
+            stringArraySchema.parse(importedFieldValue);
         }
         break;
       }
@@ -382,7 +400,9 @@ export const buildRecordFromImportedStructuredRow = ({
           isNonEmptyString(importedFieldValue)
         ) {
           recordToBuild[field.name] = new Date(
-            importedFieldValue,
+            field.type === FieldMetadataType.DATE_TIME
+              ? parseDateTimeFromCSV(importedFieldValue)
+              : importedFieldValue,
           ).toISOString();
         }
         break;

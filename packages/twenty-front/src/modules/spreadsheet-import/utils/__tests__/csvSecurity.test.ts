@@ -68,6 +68,15 @@ describe('csvSecurity', () => {
       expect(result.substring(1)).toBe(phoneNumber);
     });
 
+    it('preserves leading zero and long digit-only text in Excel', () => {
+      expect(sanitizeValueForCSVExport('00123')).toBe(
+        `${CSV_INJECTION_PREVENTION_ZWJ}00123`,
+      );
+      expect(sanitizeValueForCSVExport('12345678901234567')).toBe(
+        `${CSV_INJECTION_PREVENTION_ZWJ}12345678901234567`,
+      );
+    });
+
     it('should not modify safe strings', () => {
       expect(sanitizeValueForCSVExport('John Doe')).toBe('John Doe');
       expect(sanitizeValueForCSVExport('john@example.com')).toBe(

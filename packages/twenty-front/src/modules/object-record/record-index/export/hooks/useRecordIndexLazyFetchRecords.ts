@@ -10,6 +10,7 @@ import { computeContextStoreFilters } from '@/context-store/utils/computeContext
 import { flattenedFieldMetadataItemsSelector } from '@/object-metadata/states/flattenedFieldMetadataItemsSelector';
 import { type EnrichedObjectMetadataItem } from '@/object-metadata/types/EnrichedObjectMetadataItem';
 import { useLazyFetchAllRecords } from '@/object-record/hooks/useLazyFetchAllRecords';
+import { useGenerateDepthRecordGqlFieldsFromObject } from '@/object-record/graphql/record-gql-fields/hooks/useGenerateDepthRecordGqlFieldsFromObject';
 import { EXPORT_TABLE_DATA_DEFAULT_PAGE_SIZE } from '@/object-record/object-options-dropdown/constants/ExportTableDataDefaultPageSize';
 import { useObjectOptionsForBoard } from '@/object-record/object-options-dropdown/hooks/useObjectOptionsForBoard';
 import { visibleRecordFieldsComponentSelector } from '@/object-record/record-field/states/visibleRecordFieldsComponentSelector';
@@ -98,6 +99,11 @@ export const useRecordIndexLazyFetchRecords = ({
     recordIndexId,
   );
 
+  const { recordGqlFields } = useGenerateDepthRecordGqlFieldsFromObject({
+    objectNameSingular: objectMetadataItem.nameSingular,
+    depth: 1,
+  });
+
   const isEmptySelection =
     contextStoreTargetedRecordsRule.mode === 'selection' &&
     contextStoreTargetedRecordsRule.selectedRecordIds.length === 0;
@@ -154,6 +160,7 @@ export const useRecordIndexLazyFetchRecords = ({
   const { progress, isDownloading, fetchAllRecords } = useLazyFetchAllRecords({
     ...findManyRecordsParams,
     filter: queryFilter,
+    recordGqlFields,
     limit: pageSize,
     delayMs,
     maximumRequests,

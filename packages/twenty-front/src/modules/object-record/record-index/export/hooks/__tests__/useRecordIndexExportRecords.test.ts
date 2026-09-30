@@ -1,6 +1,7 @@
 import { type FieldMetadata } from '@/object-record/record-field/ui/types/FieldMetadata';
 import { type ColumnDefinition } from '@/object-record/record-table/types/ColumnDefinition';
 import { CSV_INJECTION_PREVENTION_ZWJ } from '@/spreadsheet-import/constants/CsvInjectionPreventionZwj';
+import { mapWorkbook } from '@/spreadsheet-import/utils/mapWorkbook';
 
 import {
   csvDownloader,
@@ -8,6 +9,7 @@ import {
   generateCsv,
 } from '@/object-record/record-index/export/hooks/useRecordIndexExportRecords';
 import { saveAs } from 'file-saver';
+import { read } from 'xlsx-ugnis';
 import { FieldMetadataType, RelationType } from '~/generated-metadata/graphql';
 
 jest.mock('file-saver', () => ({
@@ -43,7 +45,7 @@ describe('generateCsv', () => {
       {
         label: 'Relation',
         size: 120,
-        type: FieldMetadataType.TEXT,
+        type: FieldMetadataType.RELATION,
         metadata: {
           fieldName: 'relation',
           relationType: RelationType.MANY_TO_ONE,
@@ -58,22 +60,164 @@ describe('generateCsv', () => {
         foo: 'some field',
         nestedLinkField: {
           __typename: 'Links',
+          primaryLinkLabel: '',
           primaryLinkUrl: 'https://www.test.com',
-          secondaryLinks: [
-            { label: 'secondary link 1', url: 'https://www.test.com' },
-            { label: 'secondary link 2', url: 'https://www.test.com' },
-          ],
+          secondaryLinks:
+            'secondary link 1: https://www.test.com\nsecondary link 2: https://www.test.com',
         },
         relation: 'a relation',
+        relationId: 'relation-uuid',
       },
     ];
     const csv = generateCsv({ columns, rows });
-    expect(csv)
-      .toEqual(`\uFEFFId,Foo,Empty,Nested link field / Link URL,Nested link field / Secondary Links,Relation
-1,some field,,https://www.test.com,"[{""label"":""secondary link 1"",""url"":""https://www.test.com""},{""label"":""secondary link 2"",""url"":""https://www.test.com""}]",a relation`);
+    expect(csv).toEqual(
+      [
+        '\uFEFFsep=,',
+        'Id,Foo,Empty,Nested link field / Link Label,Nested link field / Link URL,Nested link field / Secondary Links,Relation,Relation / ID',
+        '1,some field,,,https://www.test.com,"secondary link 1: https://www.test.com\nsecondary link 2: https://www.test.com",a relation,relation-uuid',
+      ].join('\r\n'),
+    );
   });
 
-  it('generates csv with multi-select and array fields as JSON arrays', () => {
+  it('writes Excel-readable CSV that the importer maps back without losing text or IDs', () => {
+    const columns: Pick<
+      ColumnDefinition<FieldMetadata>,
+      'size' | 'label' | 'type' | 'metadata'
+    >[] = [
+      {
+        label: 'Name',
+        size: 100,
+        type: FieldMetadataType.TEXT,
+        metadata: { fieldName: 'name' },
+      },
+      {
+        label: 'Notes',
+        size: 180,
+        type: FieldMetadataType.TEXT,
+        metadata: { fieldName: 'notes' },
+      },
+      {
+        label: 'Company',
+        size: 120,
+        type: FieldMetadataType.RELATION,
+        metadata: {
+          fieldName: 'company',
+          relationType: RelationType.MANY_TO_ONE,
+        },
+      },
+      {
+        label: 'Annual Revenue',
+        size: 150,
+        type: FieldMetadataType.CURRENCY,
+        metadata: { fieldName: 'annualRevenue' },
+      },
+      {
+        label: 'Headquarters',
+        size: 180,
+        type: FieldMetadataType.ADDRESS,
+        metadata: { fieldName: 'headquarters' },
+      },
+      {
+        label: 'Contact Name',
+        size: 150,
+        type: FieldMetadataType.FULL_NAME,
+        metadata: { fieldName: 'contactName' },
+      },
+      {
+        label: 'Created On',
+        size: 120,
+        type: FieldMetadataType.DATE,
+        metadata: { fieldName: 'createdOn' },
+      },
+      {
+        label: 'Last Update',
+        size: 150,
+        type: FieldMetadataType.DATE_TIME,
+        metadata: { fieldName: 'lastUpdate' },
+      },
+    ];
+    const csv = generateCsv({
+      columns,
+      rows: [
+        {
+          id: '8ac078c6-532f-4a5e-af5f-fcf76f7c2ed4',
+          name: '00123',
+          notes: 'Crème, Inc. said "hello"\nSecond line',
+          company: 'Acme Corporation',
+          companyId: '6fa459ea-ee8a-3ca4-894e-db77e160355e',
+          annualRevenue: { amountMicros: 1234.56, currencyCode: 'EUR' },
+          headquarters: {
+            addressStreet1: '1 rue de la Paix',
+            addressStreet2: 'Apt 2',
+            addressCity: 'Tunis',
+            addressState: 'Tunis',
+            addressPostcode: '1000',
+            addressCountry: 'Tunisia',
+            addressLat: 36.8,
+            addressLng: 10.18,
+          },
+          contactName: { firstName: 'Zoé', lastName: 'Ben Salem' },
+          createdOn: '2025-02-03',
+          lastUpdate: '2025-02-03 04:05:06 UTC',
+        },
+      ],
+    });
+    const workbook = read(new TextEncoder().encode(csv), {
+      type: 'array',
+      codepage: 65001,
+      cellDates: true,
+      dateNF: 'yyyy-mm-dd',
+      raw: true,
+      dense: true,
+    });
+
+    expect(mapWorkbook(workbook)).toEqual([
+      [
+        'Id',
+        'Name',
+        'Notes',
+        'Company',
+        'Company / ID',
+        'Annual Revenue / Amount',
+        'Annual Revenue / Currency',
+        'Headquarters / Address 1',
+        'Headquarters / Address 2',
+        'Headquarters / City',
+        'Headquarters / State',
+        'Headquarters / Country',
+        'Headquarters / Post Code',
+        'Headquarters / Latitude',
+        'Headquarters / Longitude',
+        'Contact Name / First Name',
+        'Contact Name / Last Name',
+        'Created On',
+        'Last Update',
+      ],
+      [
+        '8ac078c6-532f-4a5e-af5f-fcf76f7c2ed4',
+        '00123',
+        'Crème, Inc. said "hello"\nSecond line',
+        'Acme Corporation',
+        '6fa459ea-ee8a-3ca4-894e-db77e160355e',
+        '1234.56',
+        'EUR',
+        '1 rue de la Paix',
+        'Apt 2',
+        'Tunis',
+        'Tunis',
+        'Tunisia',
+        '1000',
+        '36.8',
+        '10.18',
+        'Zoé',
+        'Ben Salem',
+        '2025-02-03',
+        '2025-02-03 04:05:06 UTC',
+      ],
+    ]);
+  });
+
+  it('generates csv with multi-select and array values as readable lines', () => {
     const columns: Pick<
       ColumnDefinition<FieldMetadata>,
       'size' | 'label' | 'type' | 'metadata'
@@ -102,35 +246,30 @@ describe('generateCsv', () => {
       {
         id: '1',
         name: 'John Doe',
-        tags: '["DISTRIBUTOR","IMPLEMENTATION"]',
-        skills: '["JavaScript","TypeScript","React"]',
+        tags: 'DISTRIBUTOR\nIMPLEMENTATION',
+        skills: 'JavaScript\nTypeScript\nReact',
       },
       {
         id: '2',
         name: 'Jane Smith',
-        tags: '["PARTNER"]',
-        skills: '["Python","Django"]',
+        tags: 'PARTNER',
+        skills: 'Python\nDjango',
       },
     ];
 
     const csv = generateCsv({ columns, rows });
 
-    expect(csv).toContain('[""DISTRIBUTOR"",""IMPLEMENTATION""]');
-    expect(csv).toContain('[""JavaScript"",""TypeScript"",""React""]');
-    expect(csv).toContain('[""PARTNER""]');
-    expect(csv).toContain('[""Python"",""Django""]');
-
-    expect(csv).not.toContain('{"0":"DISTRIBUTOR","1":"IMPLEMENTATION"}');
-    expect(csv).not.toContain(
-      '{"0":"JavaScript","1":"TypeScript","2":"React"}',
-    );
+    expect(csv).toContain('"DISTRIBUTOR\nIMPLEMENTATION"');
+    expect(csv).toContain('"JavaScript\nTypeScript\nReact"');
+    expect(csv).toContain('PARTNER');
+    expect(csv).toContain('"Python\nDjango"');
 
     expect(csv).toContain('Id,Name,Tags,Skills');
     expect(csv).toContain('1,John Doe');
     expect(csv).toContain('2,Jane Smith');
   });
 
-  it('generates csv with empty multi-select and array fields as empty JSON arrays', () => {
+  it('generates csv with empty multi-select and array fields as empty cells', () => {
     const columns: Pick<
       ColumnDefinition<FieldMetadata>,
       'size' | 'label' | 'type' | 'metadata'
@@ -159,17 +298,15 @@ describe('generateCsv', () => {
       {
         id: '1',
         name: 'John Doe',
-        tags: '[]',
-        skills: '[]',
+        tags: '',
+        skills: '',
       },
     ];
 
     const csv = generateCsv({ columns, rows });
 
-    expect(csv).toContain('[]');
-
     expect(csv).toContain('Id,Name,Tags,Skills');
-    expect(csv).toContain('1,John Doe,[],[]');
+    expect(csv).toContain('1,John Doe,,');
   });
 
   describe('CSV Injection Prevention with ZWJ', () => {

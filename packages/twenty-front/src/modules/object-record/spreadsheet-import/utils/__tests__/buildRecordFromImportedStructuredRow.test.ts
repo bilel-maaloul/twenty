@@ -620,4 +620,69 @@ describe('buildRecordFromImportedStructuredRow', () => {
       },
     });
   });
+
+  it('preserves the exported record ID for safe upsert updates', () => {
+    const recordId = '8ac078c6-532f-4a5e-af5f-fcf76f7c2ed4';
+    const idField: FieldMetadataItem = {
+      id: 'id-field',
+      universalIdentifier: 'id-field',
+      name: 'id',
+      label: 'ID',
+      type: FieldMetadataType.UUID,
+      description: null,
+      isNullable: false,
+      isActive: true,
+      isSystem: true,
+      createdAt: '2023-01-01',
+      updatedAt: '2023-01-01',
+      icon: 'IconId',
+    };
+
+    const result = buildRecordFromImportedStructuredRow({
+      importedStructuredRow: { id: recordId },
+      fieldMetadataItems: [idField],
+      spreadsheetImportFields: [],
+    });
+
+    expect(result).toEqual({ id: recordId });
+  });
+
+  it('parses localized decimal values and normalizes currency codes', () => {
+    const result = buildRecordFromImportedStructuredRow({
+      importedStructuredRow: {
+        numberField: '1.234,56',
+        'Amount (currencyField)': '1 234,56',
+        'Currency (currencyField)': 'eur',
+      },
+      fieldMetadataItems: fields,
+      spreadsheetImportFields: [],
+    });
+
+    expect(result).toEqual({
+      numberField: 1234.56,
+      currencyField: {
+        amountMicros: 1234560000,
+        currencyCode: 'EUR',
+      },
+      createdBy: {
+        source: 'IMPORT',
+        context: {},
+      },
+    });
+  });
+
+  it('does not create non-finite numbers from invalid spreadsheet values', () => {
+    const result = buildRecordFromImportedStructuredRow({
+      importedStructuredRow: { numberField: 'Infinity' },
+      fieldMetadataItems: fields,
+      spreadsheetImportFields: [],
+    });
+
+    expect(result).toEqual({
+      createdBy: {
+        source: 'IMPORT',
+        context: {},
+      },
+    });
+  });
 });

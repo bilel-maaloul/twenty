@@ -61,26 +61,42 @@ export const generateCsv: GenerateExport = ({
   const columnsToExportWithIdColumn = [objectIdColumn, ...columnsToExport];
 
   const keys = columnsToExportWithIdColumn.flatMap((col) => {
-    const headerLabel = `${col.label}${col.type === 'RELATION' ? ' Id' : ''}`;
     const column = {
-      field: `${col.metadata.fieldName}${col.type === 'RELATION' ? 'Id' : ''}`,
-      title: formatValueForCSV(sanitizeValueForCSVExport(headerLabel)),
+      field: col.metadata.fieldName,
+      title: formatValueForCSV(sanitizeValueForCSVExport(col.label)),
     };
 
-    const columnType = col.type;
-    if (!isCompositeFieldType(columnType)) return [column];
-
-    const nestedFieldsWithoutTypename = Object.keys(rows[0][column.field])
-      .filter((key) => key !== '__typename')
-      .map((key) => {
-        const subFieldLabel = COMPOSITE_FIELD_SUB_FIELD_LABELS[columnType][key];
-        return {
-          field: `${column.field}.${key}`,
+    if (col.type === FieldMetadataType.RELATION) {
+      return [
+        column,
+        {
+          field: `${col.metadata.fieldName}Id`,
           title: formatValueForCSV(
-            sanitizeValueForCSVExport(`${column.title} / ${subFieldLabel}`),
+            sanitizeValueForCSVExport(`${col.label} / ID`),
           ),
-        };
-      });
+        },
+      ];
+    }
+
+    const columnType = col.type;
+    if (
+      !isCompositeFieldType(columnType) ||
+      columnType === FieldMetadataType.ACTOR
+    ) {
+      return [column];
+    }
+
+    const nestedFieldsWithoutTypename = Object.keys(
+      COMPOSITE_FIELD_SUB_FIELD_LABELS[columnType],
+    ).map((key) => {
+      const subFieldLabel = COMPOSITE_FIELD_SUB_FIELD_LABELS[columnType][key];
+      return {
+        field: `${column.field}.${key}`,
+        title: formatValueForCSV(
+          sanitizeValueForCSVExport(`${column.title} / ${subFieldLabel}`),
+        ),
+      };
+    });
 
     return nestedFieldsWithoutTypename;
   });
@@ -109,13 +125,16 @@ export const generateCsv: GenerateExport = ({
     return sanitizedRow;
   });
 
-  return json2csv(sanitizedRows, {
+  const csvContent = json2csv(sanitizedRows, {
     keys,
+    delimiter: { field: ',', wrap: '"', eol: '\r\n' },
     emptyFieldValue: '',
-    excelBOM: true,
+    excelBOM: false,
     // Note: We handle CSV injection prevention manually with ZWJ approach above
     // This preserves original which the csvSecurity option does not do
   });
+
+  return `\uFEFFsep=,\r\n${csvContent}`;
 };
 
 const percentage = (part: number, whole: number): number => {
@@ -144,7 +163,9 @@ export const displayedExportProgress = (progress?: ExportProgress): string => {
 
 const downloader = (mimeType: string, generator: GenerateExport) => {
   return (filename: string, data: GenerateExportOptions) => {
-    const blob = new Blob([generator(data)], { type: mimeType });
+    const blob = new Blob([generator(data)], {
+      type: `${mimeType};charset=utf-8`,
+    });
     saveAs(blob, filename);
   };
 };

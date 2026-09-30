@@ -244,13 +244,28 @@ export const useBuildSpreadsheetImportFields = () => {
     );
 
     if (isManyToOneRelation && isDefined(targetObjectMetadataItem)) {
-      const uniqueConstraintFields = getUniqueConstraintsFields<
+      const uniqueConstraintFieldGroups = getUniqueConstraintsFields<
         FieldMetadataItem,
         EnrichedObjectMetadataItem
       >(targetObjectMetadataItem);
+      const processedUniqueFieldMetadataItemIds = new Set<string>();
 
-      //todo - update logic when composite unique indexes will be supported
-      for (const uniqueConstraintField of uniqueConstraintFields.flat()) {
+      for (const uniqueConstraintFieldGroup of uniqueConstraintFieldGroups) {
+        if (uniqueConstraintFieldGroup.length !== 1) {
+          continue;
+        }
+
+        const [uniqueConstraintField] = uniqueConstraintFieldGroup;
+
+        if (
+          !isDefined(uniqueConstraintField) ||
+          processedUniqueFieldMetadataItemIds.has(uniqueConstraintField.id)
+        ) {
+          continue;
+        }
+
+        processedUniqueFieldMetadataItemIds.add(uniqueConstraintField.id);
+
         if (isCompositeFieldType(uniqueConstraintField.type)) {
           spreadsheetImportFields.push(
             ...handleCompositeFieldFromRelationConnectField({

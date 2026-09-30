@@ -6,15 +6,34 @@ export const mapWorkbook = (workbook: WorkBook, sheetName?: string) => {
   const data = utils.sheet_to_json(worksheet, {
     header: 1,
     blankrows: false,
-    raw: false,
-  });
+    raw: true,
+  }) as unknown[][];
 
   // Clean ZWJ characters from imported CSV data to restore original values
   // This reverses the ZWJ protection applied during export
-  const cleanedData = (data as string[][]).map((row) =>
-    row.map((cell) =>
-      typeof cell === 'string' ? cleanZWJFromImportedValue(cell) : cell,
-    ),
+  const hasExcelSeparatorDirective = /^sep=.$/i.test(
+    String((data[0] as string[] | undefined)?.[0] ?? ''),
+  );
+  const dataWithoutExcelSeparatorDirective = hasExcelSeparatorDirective
+    ? data.slice(1)
+    : data;
+
+  const cleanedData = dataWithoutExcelSeparatorDirective.map((row) =>
+    row.map((cell) => {
+      if (typeof cell === 'string') {
+        return cleanZWJFromImportedValue(cell);
+      }
+
+      if (cell instanceof Date && !Number.isNaN(cell.getTime())) {
+        return cell.toISOString();
+      }
+
+      if (cell === null || cell === undefined) {
+        return undefined;
+      }
+
+      return String(cell);
+    }),
   );
 
   return cleanedData;
