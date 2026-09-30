@@ -1,4 +1,4 @@
-import { useMutation } from '@apollo/client/react';
+import { useMutation, useQuery } from '@apollo/client/react';
 import { styled } from '@linaria/react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { i18n } from '@lingui/core';
@@ -6,6 +6,7 @@ import { msg } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react/macro';
 import { Controller, useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
 import { AppPath } from 'twenty-shared/types';
 import { MainButton } from 'twenty-ui/input';
 import { AnimatedEaseIn } from 'twenty-ui/layout';
@@ -14,22 +15,31 @@ import { themeCssVariables } from 'twenty-ui/theme-constants';
 import { z } from 'zod';
 
 import { Logo } from '@/auth/components/Logo';
+import { PasswordRequirements } from '@/auth/components/PasswordRequirements';
 import { StyledOnboardingContentContainer } from '@/auth/components/StyledOnboardingContentContainer';
 import { Title } from '@/auth/components/Title';
+import { useAuth } from '@/auth/hooks/useAuth';
 import { PASSWORD_REGEX } from '@/auth/utils/passwordRegex';
+import { CaptchaCheckbox } from '@/captcha/components/CaptchaCheckbox';
+import { useReadCaptchaToken } from '@/captcha/hooks/useReadCaptchaToken';
+import { useRequestFreshCaptchaToken } from '@/captcha/hooks/useRequestFreshCaptchaToken';
+import { useCaptcha } from '@/client-config/hooks/useCaptcha';
 import { useSnackBar } from '@/ui/feedback/snack-bar-manager/hooks/useSnackBar';
 import { TextInput } from '@/ui/input/components/TextInput';
 import { isGraphqlErrorOfType } from '~/utils/is-graphql-error-of-type.util';
-import { CreateFirstPasswordDocument } from '~/generated-metadata/graphql';
+import {
+  CreateFirstPasswordDocument,
+  HasFirstPasswordCreationCapabilityDocument,
+} from '~/generated-metadata/graphql';
 
-const passwordLengthMessage = msg`Password must be between 8 and 50 characters`;
+const passwordPolicyMessage = msg`Password must be 8 to 50 characters and include an uppercase letter and a number`;
 const passwordsDoNotMatchMessage = msg`Passwords do not match`;
 
 const validationSchema = z
   .object({
     newPassword: z
       .string()
-      .regex(PASSWORD_REGEX, i18n._(passwordLengthMessage)),
+      .regex(PASSWORD_REGEX, i18n._(passwordPolicyMessage)),
     confirmPassword: z.string(),
   })
   .refine(
@@ -53,34 +63,73 @@ export const FirstPasswordCreation = () => {
   const { t } = useLingui();
   const navigate = useNavigate();
   const { enqueueErrorSnackBar, enqueueSuccessSnackBar } = useSnackBar();
-  const [createFirstPassword, { loading }] = useMutation(
+  const { completeFirstPasswordSignIn } = useAuth();
+  const { isCaptchaReady } = useCaptcha();
+  const { readCaptchaToken } = useReadCaptchaToken();
+  const { requestFreshCaptchaToken } = useRequestFreshCaptchaToken();
+  const [createFirstPassword, { loading: isCreatingPassword }] = useMutation(
     CreateFirstPasswordDocument,
   );
-  const { control, handleSubmit, reset } = useForm<Form>({
+  const { data: capabilityData, loading: isCheckingCapability } = useQuery(
+    HasFirstPasswordCreationCapabilityDocument,
+    { fetchPolicy: 'network-only' },
+  );
+  const { control, handleSubmit, reset, watch } = useForm<Form>({
     mode: 'onChange',
     resolver: zodResolver(validationSchema),
     defaultValues: { newPassword: '', confirmPassword: '' },
   });
+  const newPassword = watch('newPassword');
+  const confirmPassword = watch('confirmPassword');
+  const hasCapability =
+    capabilityData?.hasFirstPasswordCreationCapability === true;
+
+  useEffect(() => {
+    if (!isCheckingCapability && !hasCapability) {
+      navigate(AppPath.SignInUp, { replace: true });
+    }
+  }, [hasCapability, isCheckingCapability, navigate]);
 
   const onSubmit = async ({ newPassword, confirmPassword }: Form) => {
+    if (!isCaptchaReady) {
+      enqueueErrorSnackBar({
+        message: t`Complete the CAPTCHA check before creating your password.`,
+      });
+      return;
+    }
+
     try {
       const result = await createFirstPassword({
-        variables: { newPassword, confirmPassword },
+        variables: {
+          newPassword,
+          confirmPassword,
+          captchaToken: readCaptchaToken(),
+        },
       });
+
       if (result.error) {
         throw result.error;
       }
-      if (result.data?.createFirstPassword !== true) {
-        throw new Error('First-password creation did not complete');
+
+      if (!result.data?.createFirstPassword?.tokens) {
+        throw new Error('First-password authentication did not complete');
       }
 
       reset();
+      await completeFirstPasswordSignIn();
       enqueueSuccessSnackBar({
-        message: t`Password created. Sign in with your new password.`,
+        message: t`Your password is ready. You are signed in.`,
       });
-      navigate(AppPath.SignInUp, { replace: true });
     } catch (error) {
       reset();
+
+      if (isGraphqlErrorOfType(error, 'INVALID_CAPTCHA')) {
+        requestFreshCaptchaToken();
+        enqueueErrorSnackBar({
+          message: t`Complete the CAPTCHA check and try again.`,
+        });
+        return;
+      }
 
       if (isGraphqlErrorOfType(error, 'INVALID_INPUT')) {
         enqueueErrorSnackBar({
@@ -94,7 +143,7 @@ export const FirstPasswordCreation = () => {
         isGraphqlErrorOfType(error, 'FORBIDDEN')
       ) {
         enqueueErrorSnackBar({
-          message: t`Your first-login link is invalid or expired. Sign in again with your temporary password.`,
+          message: t`Your first-login invitation is invalid or expired. Ask your administrator to resend it.`,
         });
         navigate(AppPath.SignInUp, { replace: true });
         return;
@@ -106,6 +155,10 @@ export const FirstPasswordCreation = () => {
       navigate(AppPath.SignInUp, { replace: true });
     }
   };
+
+  if (isCheckingCapability || !hasCapability) {
+    return null;
+  }
 
   return (
     <ModalContent isVerticallyCentered isHorizontallyCentered>
@@ -144,11 +197,16 @@ export const FirstPasswordCreation = () => {
               />
             )}
           />
+          <PasswordRequirements
+            password={newPassword}
+            confirmPassword={confirmPassword}
+          />
+          <CaptchaCheckbox challengeKey="first-password-creation" />
           <MainButton
             title={t`Create Password`}
             type="submit"
             fullWidth
-            disabled={loading}
+            disabled={isCreatingPassword || !isCaptchaReady}
           />
         </StyledForm>
       </StyledOnboardingContentContainer>

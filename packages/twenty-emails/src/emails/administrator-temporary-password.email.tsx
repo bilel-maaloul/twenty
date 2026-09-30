@@ -31,16 +31,16 @@ export const AdministratorTemporaryPasswordEmail = ({
 
   return (
     <BaseEmail locale={locale}>
-      <Title value={i18n._('Your Twenty account is ready')} />
+      <Title value={i18n._('Your SIMPLE account is ready')} />
       <MainText>
         <Trans id="Hello {userName}," values={{ userName }} />
         <br />
         <br />
-        <Trans id="An administrator created a Twenty account for you." />
+        <Trans id="An administrator created a SIMPLE account for you." />
         <br />
         <Trans id="Account: {email}" values={{ email }} />
         <br />
-        <Trans id="Use this temporary password to sign in through the normal Twenty login page. You will be required to create a permanent password after signing in." />
+        <Trans id="Use this temporary password to sign in through the normal SIMPLE login page. You will be required to create a permanent password after signing in." />
         <br />
         <Trans
           id="This temporary password expires on {formattedExpiry} UTC."

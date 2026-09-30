@@ -9,12 +9,20 @@ import {
   type WorkspaceSurfaceContextValue,
 } from '@/ui/layout/contexts/WorkspaceSurfaceContext';
 
+jest.mock('twenty-shared/utils', () => ({
+  isDefined: (value: unknown) => value !== undefined && value !== null,
+}));
+
 jest.mock('@/settings/roles/components/SettingsRolesQueryEffect', () => ({
   SettingsRolesQueryEffect: () => null,
 }));
 
 jest.mock('@/app/routing/components/WorkspaceRouteUnavailable', () => ({
   WorkspaceRouteUnavailable: () => <div data-testid="route-unavailable" />,
+}));
+
+jest.mock('@/settings/components/SettingsSkeletonLoader', () => ({
+  SettingsSkeletonLoader: () => null,
 }));
 
 const renderGuard = ({

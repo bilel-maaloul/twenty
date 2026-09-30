@@ -1,3 +1,5 @@
+import { createHash } from 'crypto';
+
 import { type ExecutionContext } from '@nestjs/common';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 
@@ -43,13 +45,18 @@ describe('CaptchaGuard on protected authentication operations', () => {
     expect(guards).toContain(CaptchaGuard);
   });
 
-  it('does not add CAPTCHA protection to first-password creation', () => {
-    const guards = Reflect.getMetadata(
+  it('requires CAPTCHA for first-password creation but not invitation-code verification', () => {
+    const createPasswordGuards = Reflect.getMetadata(
       GUARDS_METADATA,
       AuthResolver.prototype.createFirstPassword,
     ) as unknown[];
+    const verifyInvitationCodeGuards = Reflect.getMetadata(
+      GUARDS_METADATA,
+      AuthResolver.prototype.verifyFirstPasswordInvitationPasscode,
+    ) as unknown[];
 
-    expect(guards).not.toContain(CaptchaGuard);
+    expect(createPasswordGuards).toContain(CaptchaGuard);
+    expect(verifyInvitationCodeGuards).not.toContain(CaptchaGuard);
   });
 
   it('accepts a valid CAPTCHA after server validation', async () => {
@@ -61,7 +68,7 @@ describe('CaptchaGuard on protected authentication operations', () => {
     expect(captchaService.validate).toHaveBeenCalledWith('valid');
   });
 
-  it.each([undefined, 'invalid'])(
+  it.each([undefined, 'response-token-secret'])(
     'rejects a missing or invalid CAPTCHA when validation fails: %s',
     async (captchaToken) => {
       captchaService.validate.mockResolvedValueOnce({ success: false });
@@ -70,6 +77,18 @@ describe('CaptchaGuard on protected authentication operations', () => {
         guard.canActivate(contextWithToken(captchaToken)),
       ).rejects.toMatchObject({ code: CaptchaExceptionCode.INVALID_CAPTCHA });
       expect(captchaService.validate).toHaveBeenCalledWith(captchaToken ?? '');
+
+      if (captchaToken) {
+        const metricEvent =
+          metricsService.incrementCounterForEvent.mock.calls[0][0];
+
+        expect(metricsService.incrementCounterForEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            eventId: createHash('sha256').update(captchaToken).digest('hex'),
+          }),
+        );
+        expect(JSON.stringify(metricEvent)).not.toContain(captchaToken);
+      }
     },
   );
 });

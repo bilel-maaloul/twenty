@@ -32,6 +32,7 @@ import { SignInUpGlobalScopeFormEffect } from '@/auth/sign-in-up/components/inte
 import { SignInUpSsoExchangeTokenEffect } from '@/auth/sign-in-up/components/internal/SignInUpSsoExchangeTokenEffect';
 import { SignInUpTwoFactorAuthenticationProvision } from '@/auth/sign-in-up/components/internal/SignInUpTwoFactorAuthenticationProvision';
 import { SignInUpTOTPVerification } from '@/auth/sign-in-up/components/internal/SignInUpTwoFactorAuthenticationVerification';
+import { SignInUpEmailOtpVerification } from '@/auth/sign-in-up/components/internal/SignInUpEmailOtpVerification';
 import { useWorkspaceFromInviteHash } from '@/auth/sign-in-up/hooks/useWorkspaceFromInviteHash';
 import { clientConfigApiStatusState } from '@/client-config/states/clientConfigApiStatusState';
 import { ModalContent } from 'twenty-ui/surfaces';
@@ -121,8 +122,12 @@ export const SignInUp = () => {
       return t`Verify code from the app`;
     }
 
+    if (signInUpStep === SignInUpStep.EmailOtpVerification) {
+      return t`Check your email`;
+    }
+
     if (isGlobalScope) {
-      return t`Welcome to Twenty`;
+      return t`Welcome to SIMPLE`;
     }
 
     const workspaceName = workspacePublicData?.displayName;
@@ -155,6 +160,10 @@ export const SignInUp = () => {
     // workspace scope.
     if (signInUpStep === SignInUpStep.WorkspaceCreation) {
       return <SignInUpWorkspaceCreationForm />;
+    }
+
+    if (signInUpStep === SignInUpStep.EmailOtpVerification) {
+      return <SignInUpEmailOtpVerification />;
     }
 
     if (isDefaultDomain && isMultiWorkspaceEnabled) {

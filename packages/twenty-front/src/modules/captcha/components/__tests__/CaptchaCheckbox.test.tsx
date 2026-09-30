@@ -19,6 +19,10 @@ import {
 } from '@/ui/utilities/state/jotai/jotaiStore';
 import { CaptchaDriverType, type Captcha } from '~/generated-metadata/graphql';
 
+jest.mock('twenty-shared/utils', () => ({
+  isDefined: (value: unknown) => value !== undefined && value !== null,
+}));
+
 describe('CaptchaCheckbox', () => {
   const resetMock = jest.fn();
   const renderMock = jest.fn();

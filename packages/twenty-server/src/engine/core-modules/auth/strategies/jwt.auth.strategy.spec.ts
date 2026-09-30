@@ -44,7 +44,16 @@ describe('JwtAuthStrategy', () => {
     apiKeyStore = {};
 
     userWorkspaceRepository = {
-      findOne: jest.fn(),
+      findOne: jest.fn(
+        async ({ where }: { where: Record<string, string> }) => ({
+          ...where,
+          workspaceId:
+            where.workspaceId ??
+            Object.keys(workspaceStore)[0] ??
+            'workspace-id',
+          suspendedAt: null,
+        }),
+      ),
     };
     userRepository = {
       findOne: jest.fn(async ({ where }: { where: { id: string } }) => {
@@ -56,6 +65,8 @@ describe('JwtAuthStrategy', () => {
               disabled: false,
               mustChangePassword: false,
               credentialEpoch: 0,
+              passwordHash: 'password-hash',
+              permanentPasswordExpiresAt: new Date(Date.now() + 86_400_000),
               ...user,
             }
           : null;
@@ -138,6 +149,22 @@ describe('JwtAuthStrategy', () => {
         return null;
       }),
       invalidate: jest.fn(),
+      invalidateAndRecompute: jest.fn(
+        async (_entity: string, userId: string) => {
+          const user = userStore[userId];
+
+          if (user) {
+            userStore[userId] = {
+              disabled: false,
+              mustChangePassword: false,
+              credentialEpoch: 0,
+              passwordHash: null,
+              permanentPasswordExpiresAt: null,
+              ...user,
+            };
+          }
+        },
+      ),
     };
   });
 
@@ -264,7 +291,10 @@ describe('JwtAuthStrategy', () => {
         workspaceId: validWorkspaceId,
       };
 
-      workspaceStore[validWorkspaceId] = new WorkspaceEntity();
+      const mockWorkspace = new WorkspaceEntity();
+
+      mockWorkspace.id = validWorkspaceId;
+      workspaceStore[validWorkspaceId] = mockWorkspace;
 
       strategy = createStrategy();
 
@@ -297,7 +327,10 @@ describe('JwtAuthStrategy', () => {
         workspaceId: validWorkspaceId,
       };
 
-      workspaceStore[validWorkspaceId] = new WorkspaceEntity();
+      const mockWorkspace = new WorkspaceEntity();
+
+      mockWorkspace.id = validWorkspaceId;
+      workspaceStore[validWorkspaceId] = mockWorkspace;
       userStore[validUserId] = { lastName: 'lastNameDefault' };
 
       userWorkspaceRepository.findOne.mockResolvedValue(null);
@@ -333,7 +366,10 @@ describe('JwtAuthStrategy', () => {
         workspaceId: validWorkspaceId,
       };
 
-      workspaceStore[validWorkspaceId] = new WorkspaceEntity();
+      const accessTokenWorkspace = new WorkspaceEntity();
+
+      accessTokenWorkspace.id = validWorkspaceId;
+      workspaceStore[validWorkspaceId] = accessTokenWorkspace;
       userStore[validUserId] = {
         id: validUserId,
         lastName: 'lastNameDefault',
@@ -355,6 +391,7 @@ describe('JwtAuthStrategy', () => {
           if (keyName === 'userWorkspaceEntity') {
             return {
               id: validUserWorkspaceId,
+              workspaceId: validWorkspaceId,
               user: { id: validUserId, lastName: 'lastNameDefault' },
               workspace: { id: validWorkspaceId },
             };
@@ -424,6 +461,41 @@ describe('JwtAuthStrategy', () => {
             userFriendlyMessage: msg`User does not have access to this workspace`,
           },
         ),
+      );
+    });
+
+    it('rejects a suspended membership using the authoritative database state', async () => {
+      const userId = randomUUID();
+      const userWorkspaceId = randomUUID();
+      const workspaceId = randomUUID();
+      const workspace = new WorkspaceEntity();
+
+      workspace.id = workspaceId;
+      workspace.activationStatus = WorkspaceActivationStatus.ACTIVE;
+      workspaceStore[workspaceId] = workspace;
+      userStore[userId] = { id: userId, lastName: 'Member' };
+      userWorkspaceRepository.findOne.mockResolvedValueOnce(null);
+
+      strategy = createStrategy();
+
+      await expect(
+        strategy.validate({
+          sub: userId,
+          type: JwtTokenTypeEnum.ACCESS,
+          userWorkspaceId,
+          workspaceId,
+        } as JwtPayload),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.USER_NOT_FOUND });
+
+      expect(userWorkspaceRepository.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: userWorkspaceId,
+            userId,
+            workspaceId,
+            suspendedAt: expect.anything(),
+          }),
+        }),
       );
     });
   });
@@ -515,6 +587,8 @@ describe('JwtAuthStrategy', () => {
       userStore[userId].disabled = true;
       userStore[userId].mustChangePassword = true;
       userStore[userId].credentialEpoch = 3;
+      userStore[userId].passwordHash = 'password-hash';
+      userStore[userId].permanentPasswordExpiresAt = new Date(Date.now() - 1);
       apiKeyStore[workspaceId] = {
         'api-key-id': {
           id: 'api-key-id',
@@ -1475,7 +1549,10 @@ describe('JwtAuthStrategy', () => {
         isImpersonating: true,
       };
 
-      workspaceStore[validWorkspaceId] = new WorkspaceEntity();
+      const playgroundWorkspace = new WorkspaceEntity();
+
+      playgroundWorkspace.id = validWorkspaceId;
+      workspaceStore[validWorkspaceId] = playgroundWorkspace;
       userStore[validUserId] = {
         id: validUserId,
         lastName: 'lastNameDefault',
@@ -1497,6 +1574,7 @@ describe('JwtAuthStrategy', () => {
           if (keyName === 'userWorkspaceEntity') {
             return {
               id: validUserWorkspaceId,
+              workspaceId: validWorkspaceId,
               user: { id: validUserId, lastName: 'lastNameDefault' },
               workspace: { id: validWorkspaceId },
             };

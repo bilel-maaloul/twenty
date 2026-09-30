@@ -14,4 +14,13 @@ export class AvailableWorkspacesAndAccessTokensDTO {
 
   @Field(() => Boolean, { nullable: true })
   requiresFirstPasswordCreation?: boolean | null;
+
+  @Field(() => Boolean, { nullable: true })
+  requiresEmailOtp?: boolean | null;
+
+  @Field(() => Boolean, { nullable: true })
+  requiresPasswordReset?: boolean | null;
+
+  @Field(() => String, { nullable: true })
+  emailOtpChallengeId?: string | null;
 }

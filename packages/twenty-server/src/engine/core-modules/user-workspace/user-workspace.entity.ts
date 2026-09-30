@@ -77,6 +77,12 @@ export class UserWorkspaceEntity extends WorkspaceRelatedEntity {
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 
+  @Column({ type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
+  lastHumanInteractiveActivityAt: Date;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  suspendedAt: Date | null;
+
   @Field({ nullable: true })
   @DeleteDateColumn({ type: 'timestamptz' })
   deletedAt: Date;

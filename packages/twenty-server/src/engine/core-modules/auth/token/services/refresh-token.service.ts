@@ -15,10 +15,7 @@ import {
 } from 'src/engine/core-modules/auth/auth.exception';
 import { type AuthToken } from 'src/engine/core-modules/auth/dto/auth-token.dto';
 import { type RefreshTokenJwtPayload } from 'src/engine/core-modules/auth/types/refresh-token-jwt-payload.type';
-import {
-  assertUserCanAuthenticate,
-  assertUserCredentialIsValid,
-} from 'src/engine/core-modules/auth/utils/assert-user-credential-is-valid.util';
+import { assertUserCredentialIsValid } from 'src/engine/core-modules/auth/utils/assert-user-credential-is-valid.util';
 import { JwtTokenTypeEnum } from 'src/engine/core-modules/auth/types/jwt-token-type.enum';
 import { JwtWrapperService } from 'src/engine/core-modules/jwt/services/jwt-wrapper.service';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
@@ -119,6 +116,7 @@ export class RefreshTokenService {
       'type' | 'sub' | 'jti' | 'credentialEpoch'
     >,
     isImpersonationToken: boolean = false,
+    expectedCredentialEpoch?: number,
   ): Promise<AuthToken> {
     const expiresIn = isImpersonationToken
       ? '1d'
@@ -142,7 +140,17 @@ export class RefreshTokenService {
       );
     }
 
-    assertUserCanAuthenticate(user);
+    assertUserCredentialIsValid(user, user.credentialEpoch);
+
+    if (
+      expectedCredentialEpoch !== undefined &&
+      user.credentialEpoch !== expectedCredentialEpoch
+    ) {
+      throw new AuthException(
+        'Credential is no longer valid',
+        AuthExceptionCode.UNAUTHENTICATED,
+      );
+    }
 
     const refreshToken = this.appTokenRepository.create({
       ...payload,

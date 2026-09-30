@@ -189,7 +189,7 @@ When an administrator resets another user's password, the system must:
 7. Prevent the administrator from viewing the user's existing password.
 
 This action must be logged as an administrative security event without logging the password.
-The timing and scope of revoking `UserSessionEntity` sessions and `AppTokenEntity` refresh-token records after an administrator reset remain to be decided, including sessions in other workspaces. Normal CRM access must not remain available while password creation is required.
+Credential rotation increments the global `UserEntity.credentialEpoch`, invalidates user credentials, and revokes the user's refresh tokens and `UserSessionEntity` sessions across workspaces. Normal CRM access must not remain available while password creation is required.
 
 ## Forgot-password behavior
 
@@ -242,9 +242,17 @@ Inspect existing invitation-token storage and consumption separately before desc
 - Choose the workspace role and permission combination for each administrator action; server-administrator access is separate.
 - Set the temporary-password lifetime.
 - Decide whether a new member is active, invited, or represented by another lifecycle state.
-- Decide when sessions and refresh tokens are revoked after administrator reset, including sessions in other workspaces.
 - Decide whether invitation-token storage and consumption require a separate security review.
 - Decide whether the currently ignored `.agents/skills/twenty-crm-customization/SKILL.md` should later be deliberately tracked.
+
+## Resolved security policy decisions
+
+- Interactive email/password authentication locks the normalized email for 15 minutes after three consecutive genuine wrong-password attempts. CAPTCHA failures, unknown accounts, accounts without a password, and infrastructure failures do not increment the counter. A successful password check resets it unless another request has already activated the lock.
+- Returning-user password sign-in uses password and CAPTCHA, followed by existing workspace TOTP where enabled; it does not issue or require an interactive email OTP. The email OTP infrastructure remains available for the existing email-verification and non-password authentication flows that require it. API keys, MCP, application/service tokens, refresh-token operations, and background authentication do not use interactive email OTP.
+- Permanent-password expiration is 90 days. Existing permanent passwords receive a 90-day grace period from migration time. Password changes set a new expiration time; expired passwords must use the existing reset flow and then complete fresh CAPTCHA password authentication, with any existing provider-specific challenge rules still applying. Temporary-password expiry is separate.
+- Inactivity is scoped to `UserWorkspaceEntity`. Ninety days without human interactive activity suspends only that workspace membership. API keys, MCP, app tokens, and background work do not refresh the human activity timestamp. Existing memberships start their inactivity clock at migration time because earlier human activity was not tracked. A user with `WORKSPACE_MEMBERS` permission can reactivate a membership; reactivation does not restore revoked sessions.
+- Member Calendar reads follow the existing event-owner, connected-account owner, and calendar-channel visibility rules. A member sees their own events and events from a calendar they own; `SHARE_EVERYTHING` channels make events visible workspace-wide, while `METADATA` channels redact title and description. Write access comes from event ownership or ownership of the connected calendar, not merely from channel read visibility. Generic event creation remains restricted to the existing connected-calendar flow and its `CREATE_CALENDAR_EVENT_TOOL` permission. Nested event relations and junction records use the same user visibility boundary. Workspace boundaries remain enforced; administrator access still follows workspace permissions without a server-admin bypass.
+- Password changes use the existing global `UserEntity.credentialEpoch`; password rotation invalidates user credentials, refresh tokens, and `UserSessionEntity` sessions across the user's workspaces. API keys and application/service credentials remain separate.
 
 ## Testing requirements
 
@@ -277,6 +285,38 @@ Tests must cover:
 
 ## Documentation and deployment
 
+### Production HTTPS
+
+Production browser and API traffic must use HTTPS. The recommended deployment
+terminates TLS at a trusted reverse proxy, ingress, or load balancer, redirects
+HTTP requests to HTTPS, and prevents direct public access to the unencrypted
+application port. Set `SERVER_URL` to the public `https://` URL. Keep
+`TRUST_PROXY` restricted to the actual trusted proxy network; its default trusts
+loopback and private/link-local addresses and is suitable only when the app is
+behind a proxy on that network.
+
+For direct NestJS HTTPS, configure both `SSL_KEY_PATH` and `SSL_CERT_PATH` to
+certificate files managed outside the repository. The server enables its HTTPS
+listener only when both are present. Local HTTP development remains supported.
+
+When the public `SERVER_URL` uses HTTPS, Twenty issues its session cookie with
+`Secure`, `HttpOnly`, `Path=/`, and the configured `AUTH_COOKIE_SAME_SITE`
+policy, using its secure cookie name. Cookie security does not replace TLS at
+the public edge.
+
+### Interactive password lockout
+
+The shared interactive email/password validation used by `signIn` and
+`getLoginTokenFromCredentials` tracks genuine incorrect-password attempts in
+Redis. Three consecutive failures lock password login for that normalized
+email for 15 minutes. A successful password check clears the counter unless a
+concurrent request has already activated the lock. The failure counter expires
+after 15 minutes without another failed attempt. CAPTCHA rejection, missing or
+expired CAPTCHA, unknown email, accounts without a password, and infrastructure
+errors do not increment it. Lockout and credential failures use the same
+generic client response; Redis failures fail closed. Lockout state is
+automatically cleared on expiry, and no administrator unlock is required.
+
 Authentication changes must document:
 
 - Required environment variables.
@@ -288,3 +328,70 @@ Authentication changes must document:
 - Database migrations.
 - Test commands.
 - Important assumptions and security decisions.
+
+### Interactive email verification code
+
+Returning-user password sign-in does not issue or require an interactive email
+OTP after password and CAPTCHA validation. Existing workspace TOTP remains in
+force when configured. The AppTokenEntity-backed email OTP infrastructure
+remains available for existing email-verification and non-password
+authentication flows that require it. Those challenges remain cryptographically
+generated, hash-only, short-lived, single-use, and rate-limited, with sensitive
+email delivered immediately through SMTP rather than the normal queue or LOGGER
+driver. API keys, MCP, application/service tokens, background jobs, and
+refresh-token operations do not use the interactive email challenge.
+
+The OTP email requires `EMAIL_DRIVER=SMTP`, an SMTP host and port, and TLS
+(`EMAIL_SMTP_NO_TLS=false`). Configure `EMAIL_SMTP_USER` and
+`EMAIL_SMTP_PASSWORD` when the SMTP service requires authentication, plus the
+existing `EMAIL_FROM_ADDRESS` and `EMAIL_FROM_NAME`. Sensitive OTP delivery
+does not fall back to LOGGER or the queued email driver.
+
+### Permanent password expiration
+
+Permanent password credentials expire 90 days after the password is created or
+changed. The reversible 2.41 instance command adds
+`UserEntity.permanentPasswordExpiresAt` and gives existing users with a
+permanent password a 90-day grace period from migration time. Users without a
+password and users still on a temporary password are excluded from that
+backfill. Temporary-password lifetime remains separate.
+
+Password sign-in checks the password expiry after password verification and
+email-verification requirements. An expired password receives no login token,
+OTP challenge, CRM session, or workspace list; the sign-in UI directs the user
+to Twenty's existing email password-reset flow. The password-reset operation
+updates the hash and 90-day expiry together, advances the credential epoch,
+revokes refresh tokens and user sessions, requires CAPTCHA and password
+confirmation during reset, and routes the user to fresh normal sign-in with
+CAPTCHA. Password authentication does not require mandatory email OTP.
+User-authenticated access and refresh credentials are also
+rejected after the authoritative password expiry. API keys, MCP, application
+tokens, and background credentials do not use the human password expiry rule.
+
+### Permanent-password policy and requirements UI
+
+Password creation and changes use the shared server/client rule: 8 to 50
+characters, at least one uppercase letter, and at least one number. The live
+requirements display is used during signup, first-password creation, and the
+existing password-reset flow. Ordinary password login does not enforce
+creation-time policy on a password that already exists.
+
+### Workspace-membership inactivity
+
+`UserWorkspaceEntity.lastHumanInteractiveActivityAt` is updated when a human
+sign-in establishes a workspace session and when that browser session is
+actively used. Workspace-agnostic sessions do not count until a workspace is
+selected. Impersonation, API keys, MCP, application/service tokens, and
+background jobs do not extend membership activity. The daily
+`UserWorkspaceInactivityCronJob`, registered by `cron:register:all`, suspends
+non-deleted memberships whose timestamp is older than 90 days and revokes
+sessions tied to those memberships. It does not set `UserEntity.disabled` or
+affect other workspace memberships. Reactivation requires
+`PermissionFlagType.WORKSPACE_MEMBERS`, refreshes the inactivity timestamp,
+and leaves prior sessions revoked so the member must sign in again.
+
+The reversible 2.41 instance command adds
+`UserWorkspaceEntity.lastHumanInteractiveActivityAt` and
+`UserWorkspaceEntity.suspendedAt`. The activity column defaults to migration
+time so existing members receive a 90-day baseline rather than being
+suspended immediately based on activity Twenty did not previously record.

@@ -8,7 +8,7 @@ import { SendEmailVerificationLinkEmail, renderEmail } from 'twenty-emails';
 import { type APP_LOCALES } from 'twenty-shared/translations';
 import { AppPath } from 'twenty-shared/types';
 import { assertIsDefinedOrThrow, isDefined } from 'twenty-shared/utils';
-import { Repository } from 'typeorm';
+import { IsNull, MoreThan, Repository } from 'typeorm';
 
 import {
   AppTokenEntity,
@@ -23,7 +23,7 @@ import {
   EmailVerificationException,
   EmailVerificationExceptionCode,
 } from 'src/engine/core-modules/email-verification/email-verification.exception';
-import { EmailService } from 'src/engine/core-modules/email/email.service';
+import { EmailSenderService } from 'src/engine/core-modules/email/email-sender.service';
 import { I18nService } from 'src/engine/core-modules/i18n/i18n.service';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import { UserEntity } from 'src/engine/core-modules/user/user.entity';
@@ -37,7 +37,7 @@ export class EmailVerificationService {
     private readonly userRepository: Repository<UserEntity>,
     private readonly workspaceDomainsService: WorkspaceDomainsService,
     private readonly domainsServerConfigService: DomainServerConfigService,
-    private readonly emailService: EmailService,
+    private readonly emailSenderService: EmailSenderService,
     private readonly twentyConfigService: TwentyConfigService,
     private readonly emailVerificationTokenService: EmailVerificationTokenService,
     private readonly i18nService: I18nService,
@@ -61,6 +61,8 @@ export class EmailVerificationService {
     if (!this.twentyConfigService.get('IS_EMAIL_VERIFICATION_REQUIRED')) {
       return { success: false };
     }
+
+    await this.emailSenderService.verifySensitiveDelivery();
 
     const { token: emailVerificationToken } =
       await this.emailVerificationTokenService.generateToken(userId, email);
@@ -106,7 +108,7 @@ export class EmailVerificationService {
     const i18n = this.i18nService.getI18nInstance(locale);
     const subject = i18n._(emailVerificationMsg);
 
-    await this.emailService.send({
+    await this.emailSenderService.sendSensitive({
       from: `${this.twentyConfigService.get(
         'EMAIL_FROM_NAME',
       )} <${this.twentyConfigService.get('EMAIL_FROM_ADDRESS')}>`,
@@ -151,6 +153,9 @@ export class EmailVerificationService {
       where: {
         userId: user.id,
         type: AppTokenType.EmailVerificationToken,
+        revokedAt: IsNull(),
+        deletedAt: IsNull(),
+        expiresAt: MoreThan(new Date()),
       },
     });
 
@@ -167,8 +172,6 @@ export class EmailVerificationService {
           EmailVerificationExceptionCode.RATE_LIMIT_EXCEEDED,
         );
       }
-
-      await this.appTokenRepository.delete(existingToken.id);
     }
 
     await this.sendVerificationEmail({

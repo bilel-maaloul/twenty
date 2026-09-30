@@ -1,19 +1,23 @@
-import { PASSWORD_REGEX } from '@/auth/utils/passwordRegex';
+import {
+  PASSWORD_LENGTH_REGEX,
+  PASSWORD_REGEX,
+} from '@/auth/utils/passwordRegex';
 
 describe('PASSWORD_REGEX', () => {
-  it('should match passwords with at least 8 characters', () => {
-    const validPassword = 'password123';
-    const invalidPassword = '1234567';
-
-    expect(PASSWORD_REGEX.test(validPassword)).toBe(true);
-    expect(PASSWORD_REGEX.test(invalidPassword)).toBe(false);
+  it('requires at least 8 characters, an uppercase letter, and a number', () => {
+    expect(PASSWORD_REGEX.test('Password123')).toBe(true);
+    expect(PASSWORD_REGEX.test('short1A')).toBe(false);
+    expect(PASSWORD_REGEX.test('password123')).toBe(false);
+    expect(PASSWORD_REGEX.test('PasswordOnly')).toBe(false);
   });
 
-  it('should match passwords with at most 50 characters', () => {
-    const validPassword = 'a'.repeat(50);
-    const invalidPassword = 'a'.repeat(51);
+  it('preserves the existing 50 character maximum', () => {
+    expect(PASSWORD_REGEX.test(`A1${'a'.repeat(48)}`)).toBe(true);
+    expect(PASSWORD_REGEX.test(`A1${'a'.repeat(49)}`)).toBe(false);
+  });
 
-    expect(PASSWORD_REGEX.test(validPassword)).toBe(true);
-    expect(PASSWORD_REGEX.test(invalidPassword)).toBe(false);
+  it('keeps ordinary login validation limited to the existing length rule', () => {
+    expect(PASSWORD_LENGTH_REGEX.test('password123')).toBe(true);
+    expect(PASSWORD_LENGTH_REGEX.test('1234567')).toBe(false);
   });
 });

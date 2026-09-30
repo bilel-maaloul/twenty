@@ -17,7 +17,6 @@ import type { FileUpload } from 'graphql-upload/processRequest.mjs';
 import { MetadataResolver } from 'src/engine/api/graphql/graphql-config/decorators/metadata-resolver.decorator';
 import { settings } from 'src/engine/constants/settings';
 import { ApiKeyService } from 'src/engine/core-modules/api-key/services/api-key.service';
-import { AppTokenEntity } from 'src/engine/core-modules/app-token/app-token.entity';
 import { EventLogEmitterService } from 'src/engine/core-modules/event-logs/emit/event-log-emitter.service';
 import { IMPERSONATION_EVENT } from 'src/engine/core-modules/event-logs/emit/events/workspace-event/impersonation/impersonation';
 import {
@@ -29,8 +28,12 @@ import { AppTokenInput } from 'src/engine/core-modules/auth/dto/app-token.input'
 import { AuthorizeAppDTO } from 'src/engine/core-modules/auth/dto/authorize-app.dto';
 import { AuthorizeAppInput } from 'src/engine/core-modules/auth/dto/authorize-app.input';
 import { CreateFirstPasswordInput } from 'src/engine/core-modules/auth/dto/create-first-password.input';
+import { VerifyFirstPasswordInvitationPasscodeInput } from 'src/engine/core-modules/auth/dto/verify-first-password-invitation-passcode.input';
 import { AvailableWorkspacesAndAccessTokensDTO } from 'src/engine/core-modules/auth/dto/available-workspaces-and-access-tokens.dto';
 import { EmailPasswordResetLinkDTO } from 'src/engine/core-modules/auth/dto/email-password-reset-link.dto';
+import { InteractiveEmailOtpResultDTO } from 'src/engine/core-modules/auth/dto/interactive-email-otp-result.dto';
+import { InteractiveEmailOtpVerificationInput } from 'src/engine/core-modules/auth/dto/interactive-email-otp-verification.input';
+import { ResendInteractiveEmailOtpInput } from 'src/engine/core-modules/auth/dto/resend-interactive-email-otp.input';
 import { EmailPasswordResetLinkInput } from 'src/engine/core-modules/auth/dto/email-password-reset-link.input';
 import { GetAuthTokenFromEmailVerificationTokenInput } from 'src/engine/core-modules/auth/dto/get-auth-token-from-email-verification-token.input';
 import { GetAuthorizationUrlForSsoDTO } from 'src/engine/core-modules/auth/dto/get-authorization-url-for-sso.dto';
@@ -45,6 +48,7 @@ import { VerifyEmailAndGetLoginTokenDTO } from 'src/engine/core-modules/auth/dto
 import { AuthGraphqlApiExceptionFilter } from 'src/engine/core-modules/auth/filters/auth-graphql-api-exception.filter';
 import { ResetPasswordService } from 'src/engine/core-modules/auth/services/reset-password.service';
 import { FirstPasswordCookieService } from 'src/engine/core-modules/auth/services/first-password-cookie.service';
+import { EmailLoginOtpService } from 'src/engine/core-modules/auth/services/email-login-otp.service';
 import {
   FirstPasswordCreationService,
   FirstPasswordInputRejectedException,
@@ -61,6 +65,7 @@ import { RenewTokenService } from 'src/engine/core-modules/auth/token/services/r
 import { SsoExchangeTokenService } from 'src/engine/core-modules/auth/token/services/sso-exchange-token.service';
 import { TransientTokenService } from 'src/engine/core-modules/auth/token/services/transient-token.service';
 import { WorkspaceAgnosticTokenService } from 'src/engine/core-modules/auth/token/services/workspace-agnostic-token.service';
+import { assertUserCanAuthenticate } from 'src/engine/core-modules/auth/utils/assert-user-credential-is-valid.util';
 import { AuthContextUser } from 'src/engine/core-modules/auth/types/auth-context.type';
 import { JwtTokenTypeEnum } from 'src/engine/core-modules/auth/types/jwt-token-type.enum';
 import { LoginTokenJwtPayload } from 'src/engine/core-modules/auth/types/login-token-jwt-payload.type';
@@ -146,8 +151,6 @@ export class AuthResolver {
     private readonly throttlerService: ThrottlerService,
     @InjectRepository(UserWorkspaceEntity)
     private readonly userWorkspaceRepository: Repository<UserWorkspaceEntity>,
-    @InjectRepository(AppTokenEntity)
-    private readonly appTokenRepository: Repository<AppTokenEntity>,
     private readonly twoFactorAuthenticationService: TwoFactorAuthenticationService,
     private authService: AuthService,
     private renewTokenService: RenewTokenService,
@@ -174,6 +177,7 @@ export class AuthResolver {
     private readonly userSessionCookieService: UserSessionCookieService,
     private readonly firstPasswordCookieService: FirstPasswordCookieService,
     private readonly firstPasswordCreationService: FirstPasswordCreationService,
+    private readonly emailLoginOtpService: EmailLoginOtpService,
   ) {}
 
   @UseGuards(CaptchaGuard, PublicEndpointGuard, NoPermissionGuard)
@@ -269,14 +273,20 @@ export class AuthResolver {
       return { requiresFirstPasswordCreation: true, loginToken: null };
     }
 
-    const loginToken = await this.loginTokenService.generateLoginToken(
-      validation.user.email,
-      workspace.id,
-      // email validation is active only for password flow
-      AuthProviderEnum.Password,
-    );
+    if (validation.kind === 'passwordExpired') {
+      return { requiresPasswordReset: true, loginToken: null };
+    }
 
-    return { loginToken, requiresFirstPasswordCreation: false };
+    return {
+      loginToken: await this.loginTokenService.generateLoginToken(
+        validation.user.email,
+        workspace.id,
+        AuthProviderEnum.Password,
+        { expectedCredentialEpoch: validation.user.credentialEpoch },
+      ),
+      requiresFirstPasswordCreation: false,
+      requiresEmailOtp: false,
+    };
   }
 
   @Mutation(() => AvailableWorkspacesAndAccessTokensDTO)
@@ -319,54 +329,168 @@ export class AuthResolver {
       };
     }
 
-    const user = validation.user;
+    if (validation.kind === 'passwordExpired') {
+      return {
+        requiresPasswordReset: true,
+        tokens: null,
+        availableWorkspaces: null,
+      };
+    }
 
+    const user = validation.user;
     const availableWorkspaces =
       await this.userWorkspaceService.findAvailableWorkspacesByEmail(
         user.email,
       );
-
-    const result = {
-      availableWorkspaces:
-        await this.userWorkspaceService.setLoginTokenToAvailableWorkspacesWhenAuthProviderMatch(
-          availableWorkspaces,
-          user,
-          AuthProviderEnum.Password,
+    const availableWorkspacesWithLoginTokens =
+      await this.userWorkspaceService.setLoginTokenToAvailableWorkspacesWhenAuthProviderMatch(
+        availableWorkspaces,
+        user,
+        AuthProviderEnum.Password,
+        true,
+        { expectedCredentialEpoch: user.credentialEpoch },
+      );
+    const tokens = {
+      accessOrWorkspaceAgnosticToken:
+        await this.workspaceAgnosticTokenService.generateWorkspaceAgnosticToken(
+          {
+            userId: user.id,
+            authProvider: AuthProviderEnum.Password,
+            expectedCredentialEpoch: user.credentialEpoch,
+          },
         ),
-      tokens: {
-        accessOrWorkspaceAgnosticToken:
-          await this.workspaceAgnosticTokenService.generateWorkspaceAgnosticToken(
-            {
-              userId: user.id,
-              authProvider: AuthProviderEnum.Password,
-            },
-          ),
-        refreshToken: await this.refreshTokenService.generateRefreshToken({
+      refreshToken: await this.refreshTokenService.generateRefreshToken(
+        {
           userId: user.id,
           authProvider: AuthProviderEnum.Password,
           targetedTokenType: JwtTokenTypeEnum.WORKSPACE_AGNOSTIC,
-        }),
-      },
+        },
+        false,
+        user.credentialEpoch,
+      ),
     };
 
     await this.userSessionService.issueSessionForTokenPair({
-      tokenPair: result.tokens,
+      tokenPair: tokens,
       request: context.req,
       origin: 'sign_in',
     });
 
-    return { ...result, requiresFirstPasswordCreation: false };
+    return {
+      requiresFirstPasswordCreation: false,
+      requiresEmailOtp: false,
+      tokens,
+      availableWorkspaces: availableWorkspacesWithLoginTokens,
+    };
+  }
+
+  @Mutation(() => InteractiveEmailOtpResultDTO)
+  @UseGuards(PublicEndpointGuard, NoPermissionGuard)
+  async verifyInteractiveEmailOtp(
+    @Args() input: InteractiveEmailOtpVerificationInput,
+    @Context() context: { req: Request },
+    @Args('origin') origin: string,
+  ): Promise<InteractiveEmailOtpResultDTO> {
+    const consumed = await this.emailLoginOtpService.consumeChallenge(
+      input.challengeId,
+      input.code,
+    );
+
+    if (consumed.flow === 'login-token') {
+      if (!consumed.workspaceId) {
+        throw new AuthException(
+          'Interactive sign-in challenge is invalid',
+          AuthExceptionCode.INVALID_LOGIN_OTP,
+        );
+      }
+
+      const loginToken = await this.loginTokenService.generateLoginToken(
+        consumed.user.email,
+        consumed.workspaceId,
+        consumed.authProvider,
+        {
+          emailOtpVerified: true,
+          expectedCredentialEpoch: consumed.credentialEpoch,
+        },
+      );
+      const workspace = await this.validateWorkspaceAccess(
+        origin,
+        consumed.workspaceId,
+      );
+
+      return {
+        loginToken,
+        workspaceUrls: this.workspaceDomainsService.getWorkspaceUrls(workspace),
+      };
+    }
+
+    const availableWorkspaces =
+      await this.userWorkspaceService.findAvailableWorkspacesByEmail(
+        consumed.user.email,
+      );
+    const availableWorkspacesWithLoginTokens =
+      await this.userWorkspaceService.setLoginTokenToAvailableWorkspacesWhenAuthProviderMatch(
+        availableWorkspaces,
+        consumed.user,
+        consumed.authProvider,
+        true,
+        {
+          emailOtpVerified: true,
+          expectedCredentialEpoch: consumed.credentialEpoch,
+        },
+      );
+    const tokens = {
+      accessOrWorkspaceAgnosticToken:
+        await this.workspaceAgnosticTokenService.generateWorkspaceAgnosticToken(
+          {
+            userId: consumed.user.id,
+            authProvider: consumed.authProvider,
+            expectedCredentialEpoch: consumed.credentialEpoch,
+          },
+        ),
+      refreshToken: await this.refreshTokenService.generateRefreshToken(
+        {
+          userId: consumed.user.id,
+          authProvider: consumed.authProvider,
+          targetedTokenType: JwtTokenTypeEnum.WORKSPACE_AGNOSTIC,
+        },
+        false,
+        consumed.credentialEpoch,
+      ),
+    };
+
+    await this.userSessionService.issueSessionForTokenPair({
+      tokenPair: tokens,
+      request: context.req,
+      origin: 'sign_in',
+    });
+
+    return {
+      tokens,
+      availableWorkspaces: availableWorkspacesWithLoginTokens,
+    };
   }
 
   @Mutation(() => Boolean)
   @UseGuards(PublicEndpointGuard, NoPermissionGuard)
+  async resendInteractiveEmailOtp(
+    @Args() input: ResendInteractiveEmailOtpInput,
+  ): Promise<boolean> {
+    await this.emailLoginOtpService.resendChallenge(input.challengeId);
+
+    return true;
+  }
+
+  @Mutation(() => AuthTokens)
+  @UseGuards(CaptchaGuard, PublicEndpointGuard, NoPermissionGuard)
   async createFirstPassword(
     @Args() input: CreateFirstPasswordInput,
     @Context() context: { req: Request },
-  ): Promise<boolean> {
+  ): Promise<AuthTokens> {
     const response = context.req.res;
 
     try {
+      this.firstPasswordCookieService.assertAllowedOrigin(context.req);
       await this.throttlerService.tokenBucketThrottleOrThrow(
         `first-password-creation:${context.req.ip}`,
         1,
@@ -378,17 +502,44 @@ export class AuthResolver {
         context.req,
       );
 
-      await this.firstPasswordCreationService.createPermanentPassword(
-        capability,
-        input.newPassword,
-        input.confirmPassword,
-      );
+      const { userId, credentialEpoch } =
+        await this.firstPasswordCreationService.createPermanentPassword(
+          capability,
+          input.newPassword,
+          input.confirmPassword,
+        );
+
+      const tokens = {
+        accessOrWorkspaceAgnosticToken:
+          await this.workspaceAgnosticTokenService.generateWorkspaceAgnosticToken(
+            {
+              userId,
+              authProvider: AuthProviderEnum.Password,
+              expectedCredentialEpoch: credentialEpoch,
+            },
+          ),
+        refreshToken: await this.refreshTokenService.generateRefreshToken(
+          {
+            userId,
+            authProvider: AuthProviderEnum.Password,
+            targetedTokenType: JwtTokenTypeEnum.WORKSPACE_AGNOSTIC,
+          },
+          false,
+          credentialEpoch,
+        ),
+      };
+
+      await this.userSessionService.issueSessionForTokenPair({
+        tokenPair: tokens,
+        request: context.req,
+        origin: 'sign_in',
+      });
 
       if (response) {
         this.firstPasswordCookieService.clearCapability(response);
       }
 
-      return true;
+      return { tokens };
     } catch (error) {
       if (error instanceof FirstPasswordInputRejectedException) {
         throw error;
@@ -412,6 +563,63 @@ export class AuthResolver {
     }
   }
 
+  @Mutation(() => Boolean)
+  @UseGuards(PublicEndpointGuard, NoPermissionGuard)
+  async verifyFirstPasswordInvitationPasscode(
+    @Args() input: VerifyFirstPasswordInvitationPasscodeInput,
+    @Args('origin') origin: string,
+    @Context() context: { req: Request },
+  ): Promise<boolean> {
+    this.firstPasswordCookieService.assertAllowedOrigin(context.req);
+
+    const workspace =
+      await this.workspaceDomainsService.getWorkspaceByOriginOrDefaultWorkspace(
+        origin,
+      );
+
+    if (!workspace) {
+      throw new AuthException(
+        'Invitation passcode is invalid or expired',
+        AuthExceptionCode.FORBIDDEN_EXCEPTION,
+      );
+    }
+
+    const response = context.req.res;
+
+    if (!response) {
+      throw new AuthException(
+        'HTTP response is required for password creation',
+        AuthExceptionCode.FORBIDDEN_EXCEPTION,
+      );
+    }
+
+    const { capability, expiresAt } =
+      await this.firstPasswordCreationService.verifyInvitationPasscode({
+        email: input.email,
+        workspaceId: workspace.id,
+        passcode: input.passcode,
+        ipAddress: context.req.ip,
+      });
+
+    this.firstPasswordCookieService.attachCapability(
+      response,
+      capability,
+      expiresAt,
+    );
+
+    return true;
+  }
+
+  @Query(() => Boolean)
+  @UseGuards(PublicEndpointGuard, NoPermissionGuard)
+  async hasFirstPasswordCreationCapability(
+    @Context() context: { req: Request },
+  ): Promise<boolean> {
+    return await this.firstPasswordCreationService.hasValidCapability(
+      this.firstPasswordCookieService.extractCapability(context.req),
+    );
+  }
+
   @Mutation(() => VerifyEmailAndGetLoginTokenDTO)
   @UseGuards(PublicEndpointGuard, NoPermissionGuard)
   async verifyEmailAndGetLoginToken(
@@ -420,7 +628,7 @@ export class AuthResolver {
     @Args('origin') origin: string,
   ) {
     const appToken =
-      await this.emailVerificationTokenService.validateEmailVerificationTokenOrThrow(
+      await this.emailVerificationTokenService.consumeEmailVerificationTokenOrThrow(
         getAuthTokenFromEmailVerificationTokenInput,
       );
 
@@ -436,7 +644,7 @@ export class AuthResolver {
 
     const user = await this.userService.markEmailAsVerified(appToken.user.id);
 
-    await this.appTokenRepository.remove(appToken);
+    assertUserCanAuthenticate(user);
 
     const workspace =
       (await this.workspaceDomainsService.getWorkspaceByOriginOrDefaultWorkspace(
@@ -444,16 +652,22 @@ export class AuthResolver {
       )) ??
       (await this.userWorkspaceService.findFirstWorkspaceByUserId(user.id));
 
-    const loginToken = await this.loginTokenService.generateLoginToken(
-      user.email,
-      workspace.id,
-      AuthProviderEnum.Password,
-    );
+    const emailOtpChallengeId = await this.emailLoginOtpService.issueChallenge({
+      userId: user.id,
+      authProvider: AuthProviderEnum.Password,
+      flow: 'login-token',
+      workspaceId: workspace.id,
+    });
 
     const workspaceUrls =
       this.workspaceDomainsService.getWorkspaceUrls(workspace);
 
-    return { loginToken, workspaceUrls };
+    return {
+      loginToken: null,
+      workspaceUrls,
+      requiresEmailOtp: true,
+      emailOtpChallengeId,
+    };
   }
 
   @Mutation(() => AvailableWorkspacesAndAccessTokensDTO)
@@ -461,10 +675,9 @@ export class AuthResolver {
   async verifyEmailAndGetWorkspaceAgnosticToken(
     @Args()
     getAuthTokenFromEmailVerificationTokenInput: GetAuthTokenFromEmailVerificationTokenInput,
-    @Context() context: { req: Request },
   ) {
     const appToken =
-      await this.emailVerificationTokenService.validateEmailVerificationTokenOrThrow(
+      await this.emailVerificationTokenService.consumeEmailVerificationTokenOrThrow(
         getAuthTokenFromEmailVerificationTokenInput,
       );
 
@@ -480,43 +693,20 @@ export class AuthResolver {
 
     const user = await this.userService.markEmailAsVerified(appToken.user.id);
 
-    await this.appTokenRepository.remove(appToken);
+    assertUserCanAuthenticate(user);
 
-    const availableWorkspaces =
-      await this.userWorkspaceService.findAvailableWorkspacesByEmail(
-        user.email,
-      );
-
-    const result = {
-      availableWorkspaces:
-        await this.userWorkspaceService.setLoginTokenToAvailableWorkspacesWhenAuthProviderMatch(
-          availableWorkspaces,
-          user,
-          AuthProviderEnum.Password,
-        ),
-      tokens: {
-        accessOrWorkspaceAgnosticToken:
-          await this.workspaceAgnosticTokenService.generateWorkspaceAgnosticToken(
-            {
-              userId: user.id,
-              authProvider: AuthProviderEnum.Password,
-            },
-          ),
-        refreshToken: await this.refreshTokenService.generateRefreshToken({
-          userId: user.id,
-          authProvider: AuthProviderEnum.Password,
-          targetedTokenType: JwtTokenTypeEnum.WORKSPACE_AGNOSTIC,
-        }),
-      },
-    };
-
-    await this.userSessionService.issueSessionForTokenPair({
-      tokenPair: result.tokens,
-      request: context.req,
-      origin: 'sign_in',
+    const emailOtpChallengeId = await this.emailLoginOtpService.issueChallenge({
+      userId: user.id,
+      authProvider: AuthProviderEnum.Password,
+      flow: 'workspace-agnostic',
     });
 
-    return result;
+    return {
+      availableWorkspaces: null,
+      tokens: null,
+      requiresEmailOtp: true,
+      emailOtpChallengeId,
+    };
   }
 
   @Mutation(() => AuthTokens)
@@ -531,6 +721,8 @@ export class AuthResolver {
       sub: email,
       authProvider,
       workspaceId,
+      emailOtpVerified,
+      credentialEpoch,
     } = await this.loginTokenService.verifyLoginToken(
       twoFactorAuthenticationVerificationInput.loginToken,
     );
@@ -538,6 +730,18 @@ export class AuthResolver {
     const workspace = await this.validateWorkspaceAccess(origin, workspaceId);
 
     const user = await this.userService.findUserByEmailOrThrow(email);
+
+    if (!emailOtpVerified && authProvider !== AuthProviderEnum.Password) {
+      const emailOtpChallengeId =
+        await this.emailLoginOtpService.issueChallenge({
+          userId: user.id,
+          authProvider,
+          flow: 'login-token',
+          workspaceId,
+        });
+
+      return { tokens: null, requiresEmailOtp: true, emailOtpChallengeId };
+    }
 
     await this.twoFactorAuthenticationService.validateStrategy(
       user.id,
@@ -550,6 +754,7 @@ export class AuthResolver {
       email,
       workspace.id,
       authProvider,
+      credentialEpoch,
     );
 
     await this.userSessionService.issueSessionForTokenPair({
@@ -565,7 +770,6 @@ export class AuthResolver {
   @UseGuards(CaptchaGuard, PublicEndpointGuard, NoPermissionGuard)
   async signUp(
     @Args() signUpInput: UserCredentialsInput,
-    @Context() context: { req: Request },
   ): Promise<AvailableWorkspacesAndAccessTokensDTO> {
     const user = await this.signInUpService.signUpWithoutWorkspace(
       {
@@ -578,11 +782,6 @@ export class AuthResolver {
       },
     );
 
-    const availableWorkspaces =
-      await this.userWorkspaceService.findAvailableWorkspacesByEmail(
-        user.email,
-      );
-
     await this.emailVerificationService.sendVerificationEmail({
       userId: user.id,
       email: user.email,
@@ -592,36 +791,29 @@ export class AuthResolver {
       verificationTrigger: EmailVerificationTrigger.SIGN_UP,
     });
 
-    const result = {
-      availableWorkspaces:
-        await this.userWorkspaceService.setLoginTokenToAvailableWorkspacesWhenAuthProviderMatch(
-          availableWorkspaces,
-          user,
-          AuthProviderEnum.Password,
-        ),
-      tokens: {
-        accessOrWorkspaceAgnosticToken:
-          await this.workspaceAgnosticTokenService.generateWorkspaceAgnosticToken(
-            {
-              userId: user.id,
-              authProvider: AuthProviderEnum.Password,
-            },
-          ),
-        refreshToken: await this.refreshTokenService.generateRefreshToken({
-          userId: user.id,
-          authProvider: AuthProviderEnum.Password,
-          targetedTokenType: JwtTokenTypeEnum.WORKSPACE_AGNOSTIC,
-        }),
-      },
-    };
+    if (
+      this.authService.isEmailVerificationRequired() &&
+      !user.isEmailVerified
+    ) {
+      return {
+        availableWorkspaces: null,
+        tokens: null,
+        requiresEmailOtp: false,
+      };
+    }
 
-    await this.userSessionService.issueSessionForTokenPair({
-      tokenPair: result.tokens,
-      request: context.req,
-      origin: 'sign_in',
+    const emailOtpChallengeId = await this.emailLoginOtpService.issueChallenge({
+      userId: user.id,
+      authProvider: AuthProviderEnum.Password,
+      flow: 'workspace-agnostic',
     });
 
-    return result;
+    return {
+      availableWorkspaces: null,
+      tokens: null,
+      requiresEmailOtp: true,
+      emailOtpChallengeId,
+    };
   }
 
   @Mutation(() => SignUpDTO)
@@ -851,12 +1043,32 @@ export class AuthResolver {
           impersonatedUserId,
         });
     } else {
+      if (
+        !tokenPayload.emailOtpVerified &&
+        tokenPayload.authProvider !== AuthProviderEnum.Password
+      ) {
+        const emailOtpChallengeId =
+          await this.emailLoginOtpService.issueChallenge({
+            userId: user.id,
+            authProvider: tokenPayload.authProvider,
+            flow: 'login-token',
+            workspaceId: tokenPayload.workspaceId,
+          });
+
+        return {
+          tokens: null,
+          requiresEmailOtp: true,
+          emailOtpChallengeId,
+        };
+      }
+
       await this.validateRegularAuthentication(workspace, userWorkspace);
 
       authTokens = await this.authService.verify(
         user.email,
         workspace.id,
         tokenPayload.authProvider,
+        tokenPayload.credentialEpoch,
       );
     }
 
@@ -874,37 +1086,22 @@ export class AuthResolver {
   async getAuthTokensFromSSOExchangeToken(
     @Args()
     { ssoExchangeToken }: GetAuthTokensFromSsoExchangeTokenInput,
-    @Context() context: { req: Request },
   ): Promise<AuthTokens> {
     const { userId, authProvider } =
       await this.ssoExchangeTokenService.validateAndConsumeSsoExchangeTokenOrThrow(
         ssoExchangeToken,
       );
+    const user = await this.userService.findUserByIdOrThrow(userId);
 
-    const authTokens = {
-      tokens: {
-        accessOrWorkspaceAgnosticToken:
-          await this.workspaceAgnosticTokenService.generateWorkspaceAgnosticToken(
-            {
-              userId,
-              authProvider,
-            },
-          ),
-        refreshToken: await this.refreshTokenService.generateRefreshToken({
-          userId,
-          authProvider,
-          targetedTokenType: JwtTokenTypeEnum.WORKSPACE_AGNOSTIC,
-        }),
-      },
-    };
+    assertUserCanAuthenticate(user);
 
-    await this.userSessionService.issueSessionForTokenPair({
-      tokenPair: authTokens.tokens,
-      request: context.req,
-      origin: 'sign_in',
+    const emailOtpChallengeId = await this.emailLoginOtpService.issueChallenge({
+      userId,
+      authProvider,
+      flow: 'workspace-agnostic',
     });
 
-    return authTokens;
+    return { tokens: null, requiresEmailOtp: true, emailOtpChallengeId };
   }
 
   private async validateAndDecodeLoginToken(
@@ -1191,7 +1388,7 @@ export class AuthResolver {
   }
 
   @Mutation(() => InvalidatePasswordDTO)
-  @UseGuards(PublicEndpointGuard, NoPermissionGuard)
+  @UseGuards(CaptchaGuard, PublicEndpointGuard, NoPermissionGuard)
   async updatePasswordViaResetToken(
     @Args()
     { passwordResetToken, newPassword }: UpdatePasswordViaResetTokenInput,
@@ -1200,6 +1397,13 @@ export class AuthResolver {
       await this.resetPasswordService.validatePasswordResetToken(
         passwordResetToken,
       );
+
+    this.authService.assertNewPasswordMeetsPolicy(newPassword);
+
+    await this.resetPasswordService.consumePasswordResetToken({
+      resetToken: passwordResetToken,
+      userId: id,
+    });
 
     await this.authService.updatePassword(id, newPassword);
 

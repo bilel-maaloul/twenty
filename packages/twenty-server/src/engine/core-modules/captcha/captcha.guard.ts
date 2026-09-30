@@ -1,3 +1,5 @@
+import { createHash } from 'crypto';
+
 import {
   type CanActivate,
   type ExecutionContext,
@@ -34,7 +36,9 @@ export class CaptchaGuard implements CanActivate {
     } else {
       await this.metricsService.incrementCounterForEvent({
         key: MetricsKeys.InvalidCaptcha,
-        eventId: token || '',
+        eventId: token
+          ? createHash('sha256').update(token).digest('hex')
+          : undefined,
         ...(result.error ? { attributes: { error: result.error } } : {}),
       });
 

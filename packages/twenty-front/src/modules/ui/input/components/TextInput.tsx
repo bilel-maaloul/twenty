@@ -273,6 +273,7 @@ const TextInputComponent = forwardRef<
       noErrorHelper = false,
       required,
       type,
+      'aria-label': ariaLabel,
       autoFocus,
       placeholder,
       disabled,
@@ -282,6 +283,7 @@ const TextInputComponent = forwardRef<
       onRightIconClick,
       LeftIcon,
       autoComplete,
+      inputMode,
       maxLength,
       sizeVariant = 'lg',
       inheritFontStyles = false,
@@ -364,6 +366,7 @@ const TextInputComponent = forwardRef<
               onKeyDown={onKeyDown}
               {...{
                 autoFocus,
+                'aria-label': ariaLabel,
                 disabled,
                 readOnly,
                 placeholder,
@@ -372,6 +375,7 @@ const TextInputComponent = forwardRef<
                 LeftIcon,
                 RightIcon,
                 maxLength,
+                inputMode,
                 error,
                 sizeVariant,
                 inheritFontStyles,

@@ -8,6 +8,8 @@ export * from './emails/billing-subscription-renewing.email';
 export * from './emails/billing-trial-converting.email';
 export * from './emails/billing-trial-ending.email';
 export * from './emails/administrator-temporary-password.email';
+export * from './emails/first-login-invitation-passcode.email';
+export * from './emails/interactive-login-otp.email';
 export * from './emails/clean-suspended-workspace.email';
 export * from './emails/password-reset-link.email';
 export * from './emails/password-update-notify.email';

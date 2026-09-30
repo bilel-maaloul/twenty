@@ -97,9 +97,7 @@ jest.mock('@/settings/members/components/MemberInfosTab', () => ({
     onResendTemporaryPassword?: () => void;
   }) =>
     onResendTemporaryPassword ? (
-      <button onClick={onResendTemporaryPassword}>
-        Resend temporary password
-      </button>
+      <button onClick={onResendTemporaryPassword}>Resend invitation</button>
     ) : (
       <div>Member settings</div>
     ),
@@ -184,14 +182,14 @@ describe('SettingsWorkspaceMember temporary-password action', () => {
     const { rerender } = render(<SettingsWorkspaceMember />, { wrapper });
 
     expect(
-      screen.queryByRole('button', { name: 'Resend temporary password' }),
+      screen.queryByRole('button', { name: 'Resend invitation' }),
     ).not.toBeInTheDocument();
 
     mockHasWorkspaceMembersPermission.value = true;
     rerender(<SettingsWorkspaceMember />);
 
     expect(
-      screen.getByRole('button', { name: 'Resend temporary password' }),
+      screen.getByRole('button', { name: 'Resend invitation' }),
     ).toBeInTheDocument();
   });
 
@@ -204,15 +202,11 @@ describe('SettingsWorkspaceMember temporary-password action', () => {
     });
     render(<SettingsWorkspaceMember />, { wrapper });
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Resend temporary password' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Resend invitation' }));
     expect(mockOpenModal).toHaveBeenCalledWith(
       'workspace-member-resend-temporary-password-modal',
     );
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Resend temporary password?' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Resend invitation?' }));
 
     await waitFor(() =>
       expect(mockResendTemporaryPassword).toHaveBeenCalledWith(
@@ -220,7 +214,7 @@ describe('SettingsWorkspaceMember temporary-password action', () => {
       ),
     );
     expect(mockEnqueueSuccessSnackBar).toHaveBeenCalledWith({
-      message: 'Temporary sign-in instructions were sent by email.',
+      message: 'Invitation instructions were sent by email.',
     });
     expect(
       screen.queryByRole('textbox', { name: /password/i }),
@@ -230,7 +224,7 @@ describe('SettingsWorkspaceMember temporary-password action', () => {
   it.each([
     [
       ResendTemporaryPasswordStatus.UNAVAILABLE,
-      'Temporary-password resend is unavailable for this member.',
+      'Invitation resend is unavailable for this member.',
     ],
     [
       ResendTemporaryPasswordStatus.REVIEW_REQUIRED,
@@ -250,7 +244,7 @@ describe('SettingsWorkspaceMember temporary-password action', () => {
       render(<SettingsWorkspaceMember />, { wrapper });
 
       fireEvent.click(
-        screen.getByRole('button', { name: 'Resend temporary password?' }),
+        screen.getByRole('button', { name: 'Resend invitation?' }),
       );
 
       await waitFor(() =>

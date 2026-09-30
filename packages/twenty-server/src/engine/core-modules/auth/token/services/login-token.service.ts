@@ -12,10 +12,7 @@ import {
 } from 'src/engine/core-modules/auth/auth.exception';
 import { type LoginTokenJwtPayload } from 'src/engine/core-modules/auth/types/login-token-jwt-payload.type';
 import { JwtTokenTypeEnum } from 'src/engine/core-modules/auth/types/jwt-token-type.enum';
-import {
-  assertUserCanAuthenticate,
-  assertUserCredentialIsValid,
-} from 'src/engine/core-modules/auth/utils/assert-user-credential-is-valid.util';
+import { assertUserCredentialIsValid } from 'src/engine/core-modules/auth/utils/assert-user-credential-is-valid.util';
 import { JwtWrapperService } from 'src/engine/core-modules/jwt/services/jwt-wrapper.service';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import { AuthProviderEnum } from 'src/engine/core-modules/workspace/types/workspace.type';
@@ -34,7 +31,11 @@ export class LoginTokenService {
     email: string,
     workspaceId: string,
     authProvider: AuthProviderEnum,
-    options?: { impersonatorUserWorkspaceId?: string },
+    options?: {
+      impersonatorUserWorkspaceId?: string;
+      emailOtpVerified?: boolean;
+      expectedCredentialEpoch?: number;
+    },
   ): Promise<AuthToken> {
     if (!Object.values(AuthProviderEnum).includes(authProvider)) {
       throw new AuthException(
@@ -52,7 +53,17 @@ export class LoginTokenService {
       );
     }
 
-    assertUserCanAuthenticate(user);
+    assertUserCredentialIsValid(user, user.credentialEpoch);
+
+    if (
+      options?.expectedCredentialEpoch !== undefined &&
+      user.credentialEpoch !== options.expectedCredentialEpoch
+    ) {
+      throw new AuthException(
+        'Credential is no longer valid',
+        AuthExceptionCode.UNAUTHENTICATED,
+      );
+    }
 
     const jwtPayload: LoginTokenJwtPayload = {
       type: JwtTokenTypeEnum.LOGIN,
@@ -60,6 +71,7 @@ export class LoginTokenService {
       workspaceId,
       authProvider,
       credentialEpoch: user.credentialEpoch,
+      emailOtpVerified: options?.emailOtpVerified ?? false,
       impersonatorUserWorkspaceId: options?.impersonatorUserWorkspaceId,
     };
 

@@ -13,6 +13,7 @@ import { isNonEmptyString } from '@sniptt/guards';
 import { assertIsDefinedOrThrow, isDefined } from 'twenty-shared/utils';
 import { IsNull, Repository } from 'typeorm';
 import { CoreEntityCacheService } from 'src/engine/core-entity-cache/services/core-entity-cache.service';
+import { CacheStorageException } from 'src/engine/core-modules/cache-storage/exceptions/cache-storage.exception';
 
 import {
   AppTokenEntity,
@@ -76,7 +77,12 @@ import { workspaceValidator } from 'src/engine/core-modules/workspace/workspace.
 import { assertIssuerIsPublishedOrThrow } from 'src/engine/core-modules/auth/utils/assert-issuer-is-published.util';
 import { PermissionsService } from 'src/engine/metadata-modules/permissions/permissions.service';
 import { isEmailInApprovedAccessDomains } from 'src/engine/core-modules/approved-access-domain/utils/is-email-in-approved-access-domains.util';
-import { assertUserCanAuthenticate } from 'src/engine/core-modules/auth/utils/assert-user-credential-is-valid.util';
+import { PasswordLoginLockoutService } from 'src/engine/core-modules/auth/services/password-login-lockout.service';
+import { getPermanentPasswordExpiresAt } from 'src/engine/core-modules/auth/constants/permanent-password-lifetime.constant';
+import {
+  assertUserCanAuthenticate,
+  isPermanentPasswordExpired,
+} from 'src/engine/core-modules/auth/utils/assert-user-credential-is-valid.util';
 
 const createInvalidLoginCredentialsException = () =>
   new AuthException(
@@ -119,6 +125,7 @@ export class AuthService {
     private readonly createSsoConnectedAccountService: CreateSsoConnectedAccountService,
     private readonly userSessionService: UserSessionService,
     private readonly coreEntityCacheService: CoreEntityCacheService,
+    private readonly passwordLoginLockoutService: PasswordLoginLockoutService,
   ) {}
 
   private async checkAccessAndUseInvitationOrThrow(
@@ -167,32 +174,72 @@ export class AuthService {
     input: UserCredentialsInput,
     targetWorkspace?: WorkspaceEntity,
   ) {
-    const user = await this.userRepository.findOne({
-      where: {
-        email: input.email,
-      },
-      relations: { userWorkspaces: true },
-    });
+    const normalizedEmail = input.email.toLowerCase();
+    let user: UserEntity;
 
-    if (!user) {
-      // Keep unknown-email failures comparable to wrong-password failures.
-      await hashPassword('invalid-login-attempt');
-      throw createInvalidLoginCredentialsException();
-    }
+    try {
+      if (await this.passwordLoginLockoutService.isLocked(normalizedEmail)) {
+        await hashPassword('invalid-login-attempt');
+        throw createInvalidLoginCredentialsException();
+      }
 
-    if (!user.passwordHash) {
-      await hashPassword('invalid-login-attempt');
-      throw createInvalidLoginCredentialsException();
-    }
+      const matchedUser = await this.userRepository.findOne({
+        where: {
+          email: normalizedEmail,
+        },
+        relations: { userWorkspaces: true },
+      });
 
-    const isValid = await compareHash(input.password, user.passwordHash);
+      if (!matchedUser?.passwordHash) {
+        // Keep unknown-email failures comparable to wrong-password failures.
+        await hashPassword('invalid-login-attempt');
+        throw createInvalidLoginCredentialsException();
+      }
 
-    if (!isValid) {
-      throw createInvalidLoginCredentialsException();
+      const isValid = await compareHash(
+        input.password,
+        matchedUser.passwordHash,
+      );
+
+      if (!isValid) {
+        await this.passwordLoginLockoutService.recordFailedAttempt(
+          normalizedEmail,
+        );
+        throw createInvalidLoginCredentialsException();
+      }
+
+      const resetFailedAttempts =
+        await this.passwordLoginLockoutService.resetFailedAttempts(
+          normalizedEmail,
+        );
+
+      if (!resetFailedAttempts) {
+        throw createInvalidLoginCredentialsException();
+      }
+
+      user = matchedUser;
+    } catch (error) {
+      if (error instanceof CacheStorageException) {
+        throw createInvalidLoginCredentialsException();
+      }
+
+      throw error;
     }
 
     if (user.disabled) {
       assertUserCanAuthenticate(user);
+    }
+
+    if (targetWorkspace) {
+      const userWorkspace =
+        await this.userWorkspaceService.checkUserWorkspaceExists(
+          user.id,
+          targetWorkspace.id,
+        );
+
+      if (userWorkspace?.suspendedAt) {
+        throw createInvalidLoginCredentialsException();
+      }
     }
 
     if (targetWorkspace && !targetWorkspace.isPasswordAuthEnabled) {
@@ -248,13 +295,15 @@ export class AuthService {
     assertUserCanAuthenticate(user);
     await this.checkIsEmailVerified(user.isEmailVerified);
 
+    if (isPermanentPasswordExpired(user)) {
+      return { kind: 'passwordExpired' as const, user };
+    }
+
     return { kind: 'normal' as const, user };
   }
 
   async checkIsEmailVerified(isEmailVerified: boolean) {
-    const isEmailVerificationRequired = this.twentyConfigService.get(
-      'IS_EMAIL_VERIFICATION_REQUIRED',
-    );
+    const isEmailVerificationRequired = this.isEmailVerificationRequired();
 
     if (isEmailVerificationRequired && !isEmailVerified) {
       throw new AuthException(
@@ -262,6 +311,10 @@ export class AuthService {
         AuthExceptionCode.EMAIL_NOT_VERIFIED,
       );
     }
+  }
+
+  isEmailVerificationRequired(): boolean {
+    return this.twentyConfigService.get('IS_EMAIL_VERIFICATION_REQUIRED');
   }
 
   private async validatePassword(
@@ -411,6 +464,7 @@ export class AuthService {
     email: string,
     workspaceId: string,
     authProvider: AuthProviderEnum,
+    expectedCredentialEpoch?: number,
   ): Promise<AuthTokens> {
     if (!email) {
       throw new AuthException(
@@ -429,6 +483,8 @@ export class AuthService {
       new AuthException('User not found', AuthExceptionCode.USER_NOT_FOUND),
     );
 
+    assertUserCanAuthenticate(user);
+
     // passwordHash is hidden for security reasons
     user.passwordHash = '';
 
@@ -436,13 +492,18 @@ export class AuthService {
       userId: user.id,
       workspaceId,
       authProvider,
+      expectedCredentialEpoch,
     });
-    const refreshToken = await this.refreshTokenService.generateRefreshToken({
-      userId: user.id,
-      workspaceId,
-      authProvider,
-      targetedTokenType: JwtTokenTypeEnum.ACCESS,
-    });
+    const refreshToken = await this.refreshTokenService.generateRefreshToken(
+      {
+        userId: user.id,
+        workspaceId,
+        authProvider,
+        targetedTokenType: JwtTokenTypeEnum.ACCESS,
+      },
+      false,
+      expectedCredentialEpoch,
+    );
 
     return {
       tokens: {
@@ -737,22 +798,13 @@ export class AuthService {
       );
     }
 
-    const isPasswordValid = PASSWORD_REGEX.test(newPassword);
-
-    if (!isPasswordValid) {
-      throw new AuthException(
-        'Password is too weak',
-        AuthExceptionCode.INVALID_INPUT,
-        {
-          userFriendlyMessage: msg`Password is too weak.`,
-        },
-      );
-    }
+    this.assertNewPasswordMeetsPolicy(newPassword);
 
     const newPasswordHash = await hashPassword(newPassword);
 
     await this.userRepository.update(userId, {
       passwordHash: newPasswordHash,
+      permanentPasswordExpiresAt: getPermanentPasswordExpiresAt(),
       credentialEpoch: () => '"credentialEpoch" + 1',
     });
 
@@ -789,6 +841,18 @@ export class AuthService {
     }
 
     return { success: true };
+  }
+
+  assertNewPasswordMeetsPolicy(newPassword: string): void {
+    if (!PASSWORD_REGEX.test(newPassword)) {
+      throw new AuthException(
+        'Password is too weak',
+        AuthExceptionCode.INVALID_INPUT,
+        {
+          userFriendlyMessage: msg`Password is too weak.`,
+        },
+      );
+    }
   }
 
   async invalidateCredentialsAfterPasswordChange(

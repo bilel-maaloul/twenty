@@ -4,6 +4,7 @@ import { useLocation, useParams, useSearchParams } from 'react-router-dom';
 
 import { type Form } from '@/auth/sign-in-up/hooks/useSignInUpForm';
 import { lastAuthenticatedMethodState } from '@/auth/states/lastAuthenticatedMethodState';
+import { isInvitationPasscodeModeState } from '@/auth/states/isInvitationPasscodeModeState';
 import { signInUpModeState } from '@/auth/states/signInUpModeState';
 import { workspacePublicDataState } from '@/auth/states/workspacePublicDataState';
 import {
@@ -34,6 +35,9 @@ export const useSignInUp = (form: UseFormReturn<Form>) => {
 
   const [signInUpStep, setSignInUpStep] = useAtomState(signInUpStepState);
   const [signInUpMode, setSignInUpMode] = useAtomState(signInUpModeState);
+  const [isInvitationPasscodeMode, setIsInvitationPasscodeMode] = useAtomState(
+    isInvitationPasscodeModeState,
+  );
   const { isOnAWorkspace } = useIsCurrentLocationOnAWorkspace();
   const workspacePublicData = useAtomStateValue(workspacePublicDataState);
   const { isCaptchaReady } = useCaptcha();
@@ -57,6 +61,7 @@ export const useSignInUp = (form: UseFormReturn<Form>) => {
     signInWithCredentials,
     signUpWithCredentialsInWorkspace,
     signUpWithCredentials,
+    verifyFirstPasswordInvitationPasscode,
   } = useAuth();
 
   const { readCaptchaToken } = useReadCaptchaToken();
@@ -82,6 +87,26 @@ export const useSignInUp = (form: UseFormReturn<Form>) => {
     async (data) => {
       if (!data.email || !data.password) {
         throw new Error('Email and password are required');
+      }
+
+      if (isInvitationPasscodeMode) {
+        const passcode = data.password;
+
+        form.setValue('password', '');
+
+        try {
+          await verifyFirstPasswordInvitationPasscode(
+            data.email.toLowerCase().trim(),
+            passcode,
+          );
+          setIsInvitationPasscodeMode(false);
+        } catch {
+          enqueueErrorSnackBar({
+            message: t`The invitation code is invalid or expired. Check your email or ask your administrator to resend it.`,
+          });
+        }
+
+        return;
       }
 
       if (!isCaptchaReady) {
@@ -151,7 +176,10 @@ export const useSignInUp = (form: UseFormReturn<Form>) => {
     },
     [
       isCaptchaReady,
+      isInvitationPasscodeMode,
       readCaptchaToken,
+      verifyFirstPasswordInvitationPasscode,
+      setIsInvitationPasscodeMode,
       signInUpMode,
       isInviteMode,
       signInWithCredentialsInWorkspace,

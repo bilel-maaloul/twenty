@@ -10,6 +10,8 @@ export const fromUserEntityToFlat = (entity: UserEntity): FlatUser => ({
   disabled: entity.disabled,
   mustChangePassword: entity.mustChangePassword,
   credentialEpoch: entity.credentialEpoch,
+  permanentPasswordExpiresAt:
+    entity.permanentPasswordExpiresAt?.toISOString() ?? null,
   canImpersonate: entity.canImpersonate,
   canAccessFullAdminPanel: entity.canAccessFullAdminPanel,
   locale: entity.locale,

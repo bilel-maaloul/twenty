@@ -111,7 +111,13 @@ export const WorkspaceMemberTemporaryPasswordProvisioningForm = ({
         switch (data.provisionWorkspaceMember.status) {
           case ProvisionWorkspaceMemberStatus.READY:
             enqueueSuccessSnackBar({
-              message: t`Member access is ready. If this was a new account, sign-in instructions were sent by email.`,
+              message: t`Workspace access is ready. Invitation instructions are sent only when a new account is created.`,
+            });
+            reset();
+            return;
+          case ProvisionWorkspaceMemberStatus.RESTORED_AND_INVITED:
+            enqueueSuccessSnackBar({
+              message: t`Member restored and invitation sent.`,
             });
             reset();
             return;
@@ -149,8 +155,8 @@ export const WorkspaceMemberTemporaryPasswordProvisioningForm = ({
   return (
     <Section>
       <H2Title
-        title={t`Add member with temporary password`}
-        description={t`Create workspace access. New accounts receive temporary sign-in instructions by email.`}
+        title={t`Invite member`}
+        description={t`Create workspace access. New accounts receive a one-time invitation code by email to set their password.`}
       />
       <StyledForm onSubmit={submit}>
         <StyledFieldsRow>
@@ -229,7 +235,7 @@ export const WorkspaceMemberTemporaryPasswordProvisioningForm = ({
             Icon={IconSend}
             variant="primary"
             accent="blue"
-            title={t`Add member`}
+            title={t`Send invitation`}
             type="submit"
             disabled={loading}
           />

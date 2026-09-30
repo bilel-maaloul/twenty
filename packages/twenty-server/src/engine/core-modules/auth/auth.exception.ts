@@ -36,6 +36,7 @@ export const AuthExceptionCode = appendCommonExceptionCode({
   TWO_FACTOR_AUTHENTICATION_VERIFICATION_REQUIRED:
     'TWO_FACTOR_AUTHENTICATION_VERIFICATION_REQUIRED',
   USER_ALREADY_EXISTS: 'USER_ALREADY_EXISTS',
+  INVALID_LOGIN_OTP: 'INVALID_LOGIN_OTP',
 } as const);
 
 const getAuthExceptionUserFriendlyMessage = (
@@ -81,6 +82,8 @@ const getAuthExceptionUserFriendlyMessage = (
       return msg`Two-factor authentication verification is required.`;
     case AuthExceptionCode.USER_ALREADY_EXISTS:
       return msg`A user with this email already exists.`;
+    case AuthExceptionCode.INVALID_LOGIN_OTP:
+      return msg`The sign-in code is invalid or expired.`;
     case AuthExceptionCode.ENTERPRISE_VALIDITY_TOKEN_NOT_VALID:
       return msg`Enterprise validity token is not valid.`;
     case AuthExceptionCode.INTERNAL_SERVER_ERROR:

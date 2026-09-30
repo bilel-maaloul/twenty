@@ -1,24 +1,32 @@
 import { Logger } from '@nestjs/common';
 
 import { QueryFailedError, Repository } from 'typeorm';
+import { AppPath } from 'twenty-shared/types';
 
-import { compareHash } from 'src/engine/core-modules/auth/auth.util';
-import { AuthService } from 'src/engine/core-modules/auth/services/auth.service';
+import { FirstLoginInvitationPasscodeEmail } from 'twenty-emails';
+import { FirstPasswordCreationService } from 'src/engine/core-modules/auth/services/first-password-creation.service';
 import { TemporaryPasswordProvisioningService } from 'src/engine/core-modules/auth/services/temporary-password-provisioning.service';
 import { EmailSenderService } from 'src/engine/core-modules/email/email-sender.service';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
+import { WorkspaceDomainsService } from 'src/engine/core-modules/domain/workspace-domains/services/workspace-domains.service';
 import { UserWorkspaceService } from 'src/engine/core-modules/user-workspace/user-workspace.service';
 import { UserEntity } from 'src/engine/core-modules/user/user.entity';
 import { type WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
 
 jest.mock('twenty-emails', () => ({
-  AdministratorTemporaryPasswordEmail: jest.fn((props) => props),
-  renderEmail: jest.fn(
-    async (props) => `rendered-body:${props.temporaryPassword}`,
-  ),
+  FirstLoginInvitationPasscodeEmail: jest.fn((props) => props),
+  renderEmail: jest.fn(async (props) => `rendered-body:${props.passcode}`),
 }));
 
-const WORKSPACE = { id: 'workspace-id' } as WorkspaceEntity;
+const WORKSPACE = {
+  id: 'workspace-id',
+  displayName: 'Acme',
+} as WorkspaceEntity;
+const INVITATION = {
+  passcode: '019284',
+  expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+};
+
 const createEmailUniqueViolation = () =>
   new QueryFailedError('INSERT INTO "core"."user"', [], {
     code: '23505',
@@ -37,6 +45,7 @@ const createUser = (overrides: Partial<UserEntity> = {}): UserEntity =>
     temporaryPasswordExpiresAt: null,
     credentialEpoch: 0,
     passwordHash: null,
+    permanentPasswordExpiresAt: null,
     deletedAt: null,
     ...overrides,
   }) as UserEntity;
@@ -57,17 +66,20 @@ const createHarness = () => {
   };
   const twentyConfigService = {
     get: jest.fn((key: string) => {
-      if (key === 'TEMPORARY_PASSWORD_EXPIRES_IN') return '24h';
       if (key === 'EMAIL_FROM_NAME') return 'Twenty';
       if (key === 'EMAIL_FROM_ADDRESS') return 'no-reply@example.com';
 
       throw new Error(`Unexpected config key ${key}`);
     }),
   };
-  const authService = {
-    invalidateCredentialsAfterPasswordChange: jest
-      .fn()
-      .mockResolvedValue(undefined),
+  const workspaceDomainsService = {
+    buildWorkspaceURL: jest.fn(
+      () => new URL('https://acme.example.com/create-first-password'),
+    ),
+  };
+  const firstPasswordCreationService = {
+    restoreDeletedUserForInvitation: jest.fn(),
+    issueInvitationPasscode: jest.fn().mockResolvedValue(INVITATION),
   };
   const loggerError = jest
     .spyOn(Logger.prototype, 'error')
@@ -78,7 +90,8 @@ const createHarness = () => {
     userWorkspaceService as unknown as UserWorkspaceService,
     emailSenderService as unknown as EmailSenderService,
     twentyConfigService as unknown as TwentyConfigService,
-    authService as unknown as AuthService,
+    workspaceDomainsService as unknown as WorkspaceDomainsService,
+    firstPasswordCreationService as unknown as FirstPasswordCreationService,
   );
 
   return {
@@ -86,31 +99,25 @@ const createHarness = () => {
     userRepository,
     userWorkspaceService,
     emailSenderService,
-    authService,
+    twentyConfigService,
+    workspaceDomainsService,
+    firstPasswordCreationService,
     loggerError,
     loggerWarn,
   };
 };
 
-const getEmailPassword = (sendOptions: { text: string }): string => {
-  const match = sendOptions.text.match(/^rendered-body:(.+)$/);
+const getEmailPasscode = (sendOptions: { text: string }): string => {
+  const match = sendOptions.text.match(/^rendered-body:(\d{6})$/);
 
   if (!match) {
-    throw new Error('Temporary password missing from sensitive email body');
+    throw new Error('Invitation passcode missing from sensitive email body');
   }
 
   return match[1];
 };
 
 describe('TemporaryPasswordProvisioningService', () => {
-  beforeAll(() => {
-    jest.useRealTimers();
-  });
-
-  afterAll(() => {
-    jest.useFakeTimers();
-  });
-
   afterEach(() => {
     jest.restoreAllMocks();
   });
@@ -120,9 +127,10 @@ describe('TemporaryPasswordProvisioningService', () => {
     firstName: 'Jane',
     lastName: 'Doe',
     workspace: WORKSPACE,
+    roleId: 'member-role-id',
   };
 
-  it('creates a locked user with a bcrypt hash and sends the plaintext only through sensitive SMTP', async () => {
+  it('creates a passwordless pending identity and sends a six-digit passcode only by sensitive SMTP', async () => {
     const harness = createHarness();
     const savedUser = createUser({ mustChangePassword: true });
 
@@ -135,49 +143,58 @@ describe('TemporaryPasswordProvisioningService', () => {
 
     const result =
       await harness.service.provisionUserWithTemporaryPassword(params);
-
     const savedValues = harness.userRepository.save.mock.calls[0][0];
-    const passwordFromEmail = getEmailPassword(
+    const passcode = getEmailPasscode(
       harness.emailSenderService.sendSensitive.mock.calls[0][0],
     );
 
     expect(result).toEqual({
       userId: 'user-id',
       userWasCreated: true,
-      temporaryPasswordEmail: 'sent',
+      userWasRestored: false,
+      invitationEmail: 'sent',
       workspaceMembership: 'complete',
     });
-    expect(savedValues.email).toBe('person@example.com');
-    expect(savedValues.passwordHash).not.toBe(passwordFromEmail);
-    expect(await compareHash(passwordFromEmail, savedValues.passwordHash)).toBe(
-      true,
-    );
     expect(savedValues).toMatchObject({
+      email: 'person@example.com',
+      passwordHash: null,
       mustChangePassword: true,
+      temporaryPasswordExpiresAt: null,
+      permanentPasswordExpiresAt: null,
       credentialEpoch: 0,
       disabled: false,
       canAccessFullAdminPanel: false,
       canImpersonate: false,
     });
-    expect(savedValues.temporaryPasswordExpiresAt.getTime()).toBeGreaterThan(
-      Date.now() + 23 * 60 * 60 * 1000,
-    );
-    expect(savedValues.temporaryPasswordExpiresAt.getTime()).toBeLessThan(
-      Date.now() + 25 * 60 * 60 * 1000,
-    );
+    expect(passcode).toMatch(/^\d{6}$/);
+    expect(
+      harness.firstPasswordCreationService.issueInvitationPasscode,
+    ).toHaveBeenCalledWith({ userId: savedUser.id, workspaceId: WORKSPACE.id });
     expect(
       harness.emailSenderService.verifySensitiveDelivery,
     ).toHaveBeenCalledTimes(1);
     expect(harness.emailSenderService.sendSensitive).toHaveBeenCalledTimes(1);
+    expect(
+      harness.workspaceDomainsService.buildWorkspaceURL,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pathname: AppPath.SignInUp,
+        workspace: WORKSPACE,
+      }),
+    );
+    expect(FirstLoginInvitationPasscodeEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ passcode }),
+    );
+    expect(JSON.stringify(result)).not.toContain(passcode);
     expect(harness.loggerError.mock.calls.flat().join(' ')).not.toContain(
-      passwordFromEmail,
+      passcode,
     );
     expect(harness.loggerWarn.mock.calls.flat().join(' ')).not.toContain(
-      passwordFromEmail,
+      passcode,
     );
   });
 
-  it('adds an existing active user to the workspace without changing credentials or sending email', async () => {
+  it('adds an existing active global identity to the workspace without changing credentials or sending a passcode', async () => {
     const harness = createHarness();
     const existingUser = createUser({
       mustChangePassword: false,
@@ -193,26 +210,138 @@ describe('TemporaryPasswordProvisioningService', () => {
     expect(result).toEqual({
       userId: existingUser.id,
       userWasCreated: false,
-      temporaryPasswordEmail: 'not_sent_existing_user',
+      userWasRestored: false,
+      invitationEmail: 'not_sent_existing_user',
       workspaceMembership: 'complete',
     });
     expect(
       harness.userWorkspaceService.ensureUserIsInWorkspace,
-    ).toHaveBeenCalledWith(existingUser, WORKSPACE, undefined);
+    ).toHaveBeenCalledWith(existingUser, WORKSPACE, params.roleId);
     expect(harness.userRepository.save).not.toHaveBeenCalled();
     expect(harness.userRepository.update).not.toHaveBeenCalled();
     expect(
       harness.emailSenderService.verifySensitiveDelivery,
     ).not.toHaveBeenCalled();
     expect(harness.emailSenderService.sendSensitive).not.toHaveBeenCalled();
+    expect(
+      harness.firstPasswordCreationService.issueInvitationPasscode,
+    ).not.toHaveBeenCalled();
   });
 
-  it('fails safely for a matching soft-deleted identity', async () => {
+  it('restores the same soft-deleted identity and sends a new invitation passcode', async () => {
+    const harness = createHarness();
+    const deletedUser = createUser({
+      id: 'deleted-user-id',
+      deletedAt: new Date(),
+      passwordHash: 'old-hash',
+      credentialEpoch: 5,
+    });
+    const restoredUser = createUser({
+      id: deletedUser.id,
+      deletedAt: null,
+      passwordHash: null,
+      mustChangePassword: true,
+      temporaryPasswordExpiresAt: null,
+      permanentPasswordExpiresAt: null,
+      credentialEpoch: 6,
+    });
+
+    harness.userRepository.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(deletedUser);
+    harness.firstPasswordCreationService.restoreDeletedUserForInvitation.mockResolvedValue(
+      { status: 'restored', user: restoredUser },
+    );
+
+    const result =
+      await harness.service.provisionUserWithTemporaryPassword(params);
+
+    expect(result).toEqual({
+      userId: deletedUser.id,
+      userWasCreated: false,
+      userWasRestored: true,
+      invitationEmail: 'sent',
+      workspaceMembership: 'complete',
+    });
+    expect(
+      harness.firstPasswordCreationService.restoreDeletedUserForInvitation,
+    ).toHaveBeenCalledWith({
+      userId: deletedUser.id,
+      firstName: params.firstName,
+      lastName: params.lastName,
+    });
+    expect(harness.userRepository.create).not.toHaveBeenCalled();
+    expect(harness.userRepository.save).not.toHaveBeenCalled();
+    expect(
+      harness.userWorkspaceService.ensureUserIsInWorkspace,
+    ).toHaveBeenCalledWith(restoredUser, WORKSPACE, params.roleId);
+    expect(
+      harness.firstPasswordCreationService.issueInvitationPasscode,
+    ).toHaveBeenCalledWith({
+      userId: deletedUser.id,
+      workspaceId: WORKSPACE.id,
+    });
+    expect(harness.emailSenderService.sendSensitive).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report a restored invitation as sent when sensitive SMTP delivery fails', async () => {
+    const harness = createHarness();
+    const deletedUser = createUser({
+      id: 'deleted-user-id',
+      deletedAt: new Date(),
+      passwordHash: 'old-hash',
+      credentialEpoch: 5,
+    });
+    const restoredUser = createUser({
+      id: deletedUser.id,
+      deletedAt: null,
+      passwordHash: null,
+      mustChangePassword: true,
+      temporaryPasswordExpiresAt: null,
+      permanentPasswordExpiresAt: null,
+      credentialEpoch: 6,
+    });
+
+    harness.userRepository.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(deletedUser);
+    harness.firstPasswordCreationService.restoreDeletedUserForInvitation.mockResolvedValue(
+      { status: 'restored', user: restoredUser },
+    );
+    harness.emailSenderService.sendSensitive.mockRejectedValueOnce(
+      new Error('smtp delivery failure'),
+    );
+
+    const result =
+      await harness.service.provisionUserWithTemporaryPassword(params);
+
+    expect(result).toEqual({
+      userId: deletedUser.id,
+      userWasCreated: false,
+      userWasRestored: true,
+      invitationEmail: 'failed_or_unknown',
+      workspaceMembership: 'complete',
+    });
+    expect(
+      harness.firstPasswordCreationService.issueInvitationPasscode,
+    ).toHaveBeenCalledWith({
+      userId: deletedUser.id,
+      workspaceId: WORKSPACE.id,
+    });
+    expect(harness.emailSenderService.sendSensitive).toHaveBeenCalledTimes(1);
+    expect(harness.loggerError.mock.calls.flat().join(' ')).not.toContain(
+      'smtp delivery failure',
+    );
+  });
+
+  it('rejects a disabled soft-deleted identity without revealing or changing it', async () => {
     const harness = createHarness();
 
     harness.userRepository.findOne
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(createUser({ deletedAt: new Date() }));
+      .mockResolvedValueOnce(
+        createUser({ deletedAt: new Date(), disabled: true }),
+      );
 
     await expect(
       harness.service.provisionUserWithTemporaryPassword(params),
@@ -222,12 +351,15 @@ describe('TemporaryPasswordProvisioningService', () => {
       harness.emailSenderService.verifySensitiveDelivery,
     ).not.toHaveBeenCalled();
     expect(harness.userRepository.save).not.toHaveBeenCalled();
+    expect(
+      harness.firstPasswordCreationService.restoreDeletedUserForInvitation,
+    ).not.toHaveBeenCalled();
     expect(harness.loggerWarn.mock.calls.flat().join(' ')).not.toContain(
       'person@example.com',
     );
   });
 
-  it('fails SMTP preflight before creating any credential state', async () => {
+  it('fails SMTP preflight before creating an identity or passcode', async () => {
     const harness = createHarness();
 
     harness.userRepository.findOne
@@ -239,17 +371,20 @@ describe('TemporaryPasswordProvisioningService', () => {
 
     await expect(
       harness.service.provisionUserWithTemporaryPassword(params),
-    ).rejects.toThrow('Sensitive email SMTP preflight failed');
+    ).rejects.toThrow('Invitation email SMTP preflight failed');
 
     expect(harness.userRepository.save).not.toHaveBeenCalled();
     expect(harness.userRepository.update).not.toHaveBeenCalled();
     expect(harness.emailSenderService.sendSensitive).not.toHaveBeenCalled();
+    expect(
+      harness.firstPasswordCreationService.issueInvitationPasscode,
+    ).not.toHaveBeenCalled();
     expect(harness.loggerError.mock.calls.flat().join(' ')).not.toContain(
       'smtp-secret-password',
     );
   });
 
-  it('treats a concurrent active-user winner as existing and never rotates or emails it', async () => {
+  it('treats a concurrent active-user winner as existing and never emails a passcode', async () => {
     const harness = createHarness();
     const winningUser = createUser({
       id: 'winning-user-id',
@@ -271,176 +406,21 @@ describe('TemporaryPasswordProvisioningService', () => {
     expect(result).toEqual({
       userId: winningUser.id,
       userWasCreated: false,
-      temporaryPasswordEmail: 'not_sent_existing_user',
+      userWasRestored: false,
+      invitationEmail: 'not_sent_existing_user',
       workspaceMembership: 'complete',
     });
     expect(
       harness.userWorkspaceService.ensureUserIsInWorkspace,
-    ).toHaveBeenCalledWith(winningUser, WORKSPACE, undefined);
+    ).toHaveBeenCalledWith(winningUser, WORKSPACE, params.roleId);
     expect(harness.userRepository.update).not.toHaveBeenCalled();
     expect(harness.emailSenderService.sendSensitive).not.toHaveBeenCalled();
-  });
-
-  it('rejects a disabled existing identity without reconciling membership or changing credentials', async () => {
-    const harness = createHarness();
-    const disabledUser = createUser({
-      disabled: true,
-      passwordHash: 'existing-hash',
-      credentialEpoch: 4,
-    });
-
-    harness.userRepository.findOne.mockResolvedValueOnce(disabledUser);
-
-    await expect(
-      harness.service.provisionUserWithTemporaryPassword(params),
-    ).rejects.toThrow('Unable to provision the user');
-
     expect(
-      harness.userWorkspaceService.ensureUserIsInWorkspace,
+      harness.firstPasswordCreationService.issueInvitationPasscode,
     ).not.toHaveBeenCalled();
-    expect(harness.userRepository.save).not.toHaveBeenCalled();
-    expect(harness.userRepository.update).not.toHaveBeenCalled();
-    expect(
-      harness.emailSenderService.verifySensitiveDelivery,
-    ).not.toHaveBeenCalled();
-    expect(harness.emailSenderService.sendSensitive).not.toHaveBeenCalled();
-    expect(disabledUser).toMatchObject({
-      disabled: true,
-      passwordHash: 'existing-hash',
-      credentialEpoch: 4,
-    });
   });
 
-  it.each([
-    [
-      'ambiguous database outcome',
-      new Error('connection dropped after commit'),
-    ],
-    [
-      'an unrelated unique constraint violation',
-      new QueryFailedError('INSERT INTO "core"."user"', [], {
-        code: '23505',
-        constraint: 'some_other_unique_constraint',
-      } as Error & { code: string; constraint: string }),
-    ],
-  ])(
-    'requires review after %s instead of treating it as a winning user',
-    async (_name, error) => {
-      const harness = createHarness();
-      harness.userRepository.findOne
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(null);
-      harness.userRepository.save.mockRejectedValueOnce(error);
-
-      await expect(
-        harness.service.provisionUserWithTemporaryPassword(params),
-      ).rejects.toMatchObject({ failure: 'review_required' });
-
-      expect(harness.userRepository.findOne).toHaveBeenCalledTimes(2);
-      expect(
-        harness.userWorkspaceService.ensureUserIsInWorkspace,
-      ).not.toHaveBeenCalled();
-      expect(harness.emailSenderService.sendSensitive).not.toHaveBeenCalled();
-      expect(harness.userRepository.update).not.toHaveBeenCalled();
-    },
-  );
-
-  it('converges concurrent provisioning requests on the database uniqueness winner', async () => {
-    const harness = createHarness();
-    let persistedUser: UserEntity | null = null;
-    let saveCalls = 0;
-    let releaseSaves: (() => void) | undefined;
-    const saveBarrier = new Promise<void>((resolve) => {
-      releaseSaves = resolve;
-    });
-
-    harness.userRepository.findOne.mockImplementation(
-      async () => persistedUser,
-    );
-    harness.userRepository.save.mockImplementation(async (values) => {
-      saveCalls += 1;
-
-      if (saveCalls === 2) {
-        releaseSaves?.();
-      }
-
-      await saveBarrier;
-
-      if (persistedUser) {
-        throw createEmailUniqueViolation();
-      }
-
-      persistedUser = Object.assign(
-        {},
-        createUser({ id: 'database-winner' }),
-        values,
-      ) as UserEntity;
-
-      return persistedUser;
-    });
-
-    const results = await Promise.all([
-      harness.service.provisionUserWithTemporaryPassword(params),
-      harness.service.provisionUserWithTemporaryPassword(params),
-    ]);
-
-    expect(saveCalls).toBe(2);
-    expect(
-      results
-        .map(({ userWasCreated }) => userWasCreated)
-        .sort((left, right) => Number(left) - Number(right)),
-    ).toEqual([false, true]);
-    expect(
-      harness.emailSenderService.verifySensitiveDelivery,
-    ).toHaveBeenCalledTimes(2);
-    expect(harness.emailSenderService.sendSensitive).toHaveBeenCalledTimes(1);
-    expect(harness.userRepository.update).not.toHaveBeenCalled();
-    expect(
-      harness.userWorkspaceService.ensureUserIsInWorkspace,
-    ).toHaveBeenCalledTimes(2);
-  });
-
-  it('repairs partial membership state on retry without creating or mailing another credential', async () => {
-    const harness = createHarness();
-    const savedUser = createUser({ mustChangePassword: true });
-
-    harness.userRepository.findOne
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(savedUser);
-    harness.userRepository.save.mockResolvedValueOnce(savedUser);
-    harness.userWorkspaceService.ensureUserIsInWorkspace
-      .mockRejectedValueOnce(new Error('workspace relationship failure'))
-      .mockResolvedValueOnce(undefined);
-
-    const firstResult =
-      await harness.service.provisionUserWithTemporaryPassword(params);
-
-    expect(firstResult).toMatchObject({
-      userWasCreated: true,
-      temporaryPasswordEmail: 'sent',
-      workspaceMembership: 'incomplete',
-    });
-
-    const retryResult =
-      await harness.service.provisionUserWithTemporaryPassword(params);
-
-    expect(retryResult).toMatchObject({
-      userWasCreated: false,
-      temporaryPasswordEmail: 'not_sent_existing_user',
-      workspaceMembership: 'complete',
-    });
-    expect(harness.userRepository.save).toHaveBeenCalledTimes(1);
-    expect(
-      harness.emailSenderService.verifySensitiveDelivery,
-    ).toHaveBeenCalledTimes(1);
-    expect(harness.emailSenderService.sendSensitive).toHaveBeenCalledTimes(1);
-    expect(
-      harness.userWorkspaceService.ensureUserIsInWorkspace,
-    ).toHaveBeenCalledTimes(2);
-  });
-
-  it('returns an ambiguous email status without leaking SMTP error or password', async () => {
+  it('returns review-required state after partial membership persistence without issuing an invitation', async () => {
     const harness = createHarness();
     const savedUser = createUser({ mustChangePassword: true });
 
@@ -448,194 +428,77 @@ describe('TemporaryPasswordProvisioningService', () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null);
     harness.userRepository.save.mockResolvedValueOnce(savedUser);
-    harness.emailSenderService.sendSensitive.mockImplementationOnce(
-      async (options) => {
-        const password = getEmailPassword(options);
-
-        throw new Error(`SMTP failed after acceptance: ${password}`);
-      },
+    harness.userWorkspaceService.ensureUserIsInWorkspace.mockRejectedValueOnce(
+      new Error('workspace relationship failure'),
     );
 
     const result =
       await harness.service.provisionUserWithTemporaryPassword(params);
-    const secret = getEmailPassword(
-      harness.emailSenderService.sendSensitive.mock.calls[0][0],
-    );
-
-    expect(result.temporaryPasswordEmail).toBe('failed_or_unknown');
-    expect(result.workspaceMembership).toBe('complete');
-    expect(JSON.stringify(result)).not.toContain(secret);
-    expect(harness.loggerError.mock.calls.flat().join(' ')).not.toContain(
-      secret,
-    );
-    expect(harness.loggerError.mock.calls.flat().join(' ')).not.toContain(
-      'SMTP failed after acceptance',
-    );
-  });
-
-  it('atomically rotates a temporary credential, increments the epoch and invalidates Phase 1 state', async () => {
-    const harness = createHarness();
-    const user = createUser({
-      mustChangePassword: true,
-      credentialEpoch: 2,
-      passwordHash: 'old-hash',
-    });
-
-    harness.userRepository.findOne.mockResolvedValueOnce(user);
-    harness.userRepository.update.mockResolvedValueOnce({ affected: 1 });
-
-    const result = await harness.service.rotateTemporaryPassword(user.id);
-    const updateCall = harness.userRepository.update.mock.calls[0];
-    const secret = getEmailPassword(
-      harness.emailSenderService.sendSensitive.mock.calls[0][0],
-    );
 
     expect(result).toEqual({
-      userId: user.id,
-      credentialEpoch: 3,
-      temporaryPasswordEmail: 'sent',
+      userId: savedUser.id,
+      userWasCreated: true,
+      userWasRestored: false,
+      invitationEmail: 'failed_or_unknown',
+      workspaceMembership: 'incomplete',
     });
-    expect(updateCall[0]).toEqual({
-      id: user.id,
-      credentialEpoch: 2,
-      mustChangePassword: true,
-      disabled: false,
-    });
-    expect(updateCall[1]).toMatchObject({
-      mustChangePassword: true,
-      credentialEpoch: expect.any(Function),
-    });
-    expect(updateCall[1].credentialEpoch()).toBe('"credentialEpoch" + 1');
-    expect(updateCall[1].passwordHash).not.toBe(secret);
-    expect(await compareHash(secret, updateCall[1].passwordHash)).toBe(true);
     expect(
-      await compareHash(
-        'previous-temporary-password',
-        updateCall[1].passwordHash,
-      ),
-    ).toBe(false);
-    expect(
-      harness.authService.invalidateCredentialsAfterPasswordChange,
-    ).toHaveBeenCalledWith(user.id);
-    expect(JSON.stringify(result)).not.toContain(secret);
-    expect(harness.loggerError.mock.calls.flat().join(' ')).not.toContain(
-      secret,
-    );
-  });
-
-  it('reports an unknown database rotation outcome only when authoritative state cannot be established', async () => {
-    const harness = createHarness();
-    const user = createUser({ mustChangePassword: true, credentialEpoch: 0 });
-
-    harness.userRepository.findOne
-      .mockResolvedValueOnce(user)
-      .mockRejectedValueOnce(new Error('database unavailable'));
-    harness.userRepository.update.mockRejectedValueOnce(
-      new Error('connection dropped after commit'),
-    );
-
-    await expect(
-      harness.service.rotateTemporaryPassword(user.id),
-    ).rejects.toThrow('Temporary-password rotation outcome is unknown');
-
+      harness.firstPasswordCreationService.issueInvitationPasscode,
+    ).not.toHaveBeenCalled();
     expect(harness.emailSenderService.sendSensitive).not.toHaveBeenCalled();
-    expect(
-      harness.authService.invalidateCredentialsAfterPasswordChange,
-    ).not.toHaveBeenCalled();
   });
 
-  it('confirms a committed rotation after an ambiguous database error before reporting success', async () => {
+  it('sanitizes an ambiguous SMTP delivery failure without logging the passcode', async () => {
     const harness = createHarness();
-    const user = createUser({ mustChangePassword: true, credentialEpoch: 0 });
-    let committedUser: UserEntity | null = null;
+    const savedUser = createUser({ mustChangePassword: true });
 
     harness.userRepository.findOne
-      .mockResolvedValueOnce(user)
-      .mockImplementationOnce(async () => committedUser);
-    harness.userRepository.update.mockImplementationOnce(
-      async (_criteria, values) => {
-        committedUser = Object.assign({}, user, values, {
-          credentialEpoch: 1,
-        }) as UserEntity;
-
-        throw new Error('connection dropped after commit');
-      },
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    harness.userRepository.save.mockResolvedValueOnce(savedUser);
+    harness.emailSenderService.sendSensitive.mockRejectedValueOnce(
+      new Error('connection dropped after SMTP accepted body with 019284'),
     );
 
-    const result = await harness.service.rotateTemporaryPassword(user.id);
+    const result =
+      await harness.service.provisionUserWithTemporaryPassword(params);
 
-    expect(result).toEqual({
-      userId: user.id,
-      credentialEpoch: 1,
-      temporaryPasswordEmail: 'sent',
-    });
-    expect(
-      harness.authService.invalidateCredentialsAfterPasswordChange,
-    ).toHaveBeenCalledWith(user.id);
-    expect(harness.emailSenderService.sendSensitive).toHaveBeenCalledTimes(1);
+    expect(result.invitationEmail).toBe('failed_or_unknown');
+    expect(harness.loggerError.mock.calls.flat().join(' ')).not.toContain(
+      INVITATION.passcode,
+    );
+    expect(harness.loggerError.mock.calls.flat().join(' ')).not.toContain(
+      'connection dropped',
+    );
   });
 
-  it('does not mutate a temporary credential when rotation preflight fails', async () => {
+  it('resends by issuing a new passcode through the sensitive email path only', async () => {
     const harness = createHarness();
-    const user = createUser({ mustChangePassword: true });
-
-    harness.userRepository.findOne.mockResolvedValueOnce(user);
-    harness.emailSenderService.verifySensitiveDelivery.mockRejectedValueOnce(
-      new Error('SMTP unavailable'),
-    );
+    const pendingUser = createUser({
+      mustChangePassword: true,
+      passwordHash: null,
+      temporaryPasswordExpiresAt: null,
+    });
+    harness.userRepository.findOne.mockResolvedValueOnce(pendingUser);
 
     await expect(
-      harness.service.rotateTemporaryPassword(user.id),
-    ).rejects.toThrow('Sensitive email SMTP preflight failed');
+      harness.service.resendInvitationPasscode(pendingUser.id, WORKSPACE),
+    ).resolves.toEqual({ invitationEmail: 'sent' });
 
-    expect(harness.userRepository.update).not.toHaveBeenCalled();
     expect(
-      harness.authService.invalidateCredentialsAfterPasswordChange,
-    ).not.toHaveBeenCalled();
-  });
-
-  it('allows only one concurrent resend to rotate, invalidate and email a credential', async () => {
-    const harness = createHarness();
-    const user = createUser({
-      mustChangePassword: true,
-      credentialEpoch: 7,
-      passwordHash: 'old-temporary-password-hash',
+      harness.firstPasswordCreationService.issueInvitationPasscode,
+    ).toHaveBeenCalledWith({
+      userId: pendingUser.id,
+      workspaceId: WORKSPACE.id,
     });
-    let updatesStarted = 0;
-    let releaseUpdates: (() => void) | undefined;
-    const updatesBarrier = new Promise<void>((resolve) => {
-      releaseUpdates = resolve;
-    });
-
-    harness.userRepository.findOne.mockResolvedValue(user);
-    harness.userRepository.update.mockImplementation(async () => {
-      const updateNumber = ++updatesStarted;
-      if (updatesStarted === 2) {
-        releaseUpdates?.();
-      }
-      await updatesBarrier;
-
-      return { affected: updateNumber === 1 ? 1 : 0 };
-    });
-
-    const results = await Promise.allSettled([
-      harness.service.rotateTemporaryPassword(user.id),
-      harness.service.rotateTemporaryPassword(user.id),
-    ]);
-
-    expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(
-      1,
-    );
-    expect(results.filter(({ status }) => status === 'rejected')).toHaveLength(
-      1,
-    );
-    expect(harness.userRepository.update).toHaveBeenCalledTimes(2);
     expect(
-      harness.authService.invalidateCredentialsAfterPasswordChange,
-    ).toHaveBeenCalledTimes(1);
+      harness.emailSenderService.verifySensitiveDelivery,
+    ).toHaveBeenCalled();
     expect(harness.emailSenderService.sendSensitive).toHaveBeenCalledTimes(1);
-    expect(harness.loggerError.mock.calls.flat().join(' ')).not.toContain(
-      'previous-temporary-password',
-    );
+    expect(
+      getEmailPasscode(
+        harness.emailSenderService.sendSensitive.mock.calls[0][0],
+      ),
+    ).toBe(INVITATION.passcode);
   });
 });

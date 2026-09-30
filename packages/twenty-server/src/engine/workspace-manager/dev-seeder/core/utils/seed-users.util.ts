@@ -1,5 +1,7 @@
 import { type QueryRunner } from 'typeorm';
 
+import { getPermanentPasswordExpiresAt } from 'src/engine/core-modules/auth/constants/permanent-password-lifetime.constant';
+
 import { generateRandomUsers } from './generate-random-users.util';
 
 const tableName = 'user';
@@ -22,6 +24,7 @@ type SeedUsersArgs = {
 };
 
 export const seedUsers = async ({ queryRunner, schemaName }: SeedUsersArgs) => {
+  const permanentPasswordExpiresAt = getPermanentPasswordExpiresAt();
   const originalUsers = [
     {
       id: USER_DATA_SEED_IDS.TIM,
@@ -80,7 +83,10 @@ export const seedUsers = async ({ queryRunner, schemaName }: SeedUsersArgs) => {
     },
   ];
 
-  const allUsers = [...originalUsers, ...randomUsers];
+  const allUsers = [...originalUsers, ...randomUsers].map((user) => ({
+    ...user,
+    permanentPasswordExpiresAt,
+  }));
 
   await queryRunner.manager
     .createQueryBuilder()
@@ -91,6 +97,7 @@ export const seedUsers = async ({ queryRunner, schemaName }: SeedUsersArgs) => {
       'lastName',
       'email',
       'passwordHash',
+      'permanentPasswordExpiresAt',
       'canImpersonate',
       'canAccessFullAdminPanel',
       'isEmailVerified',

@@ -10,6 +10,8 @@ describe('user credential validation', () => {
     disabled: false,
     mustChangePassword: false,
     credentialEpoch: 0,
+    passwordHash: 'password-hash',
+    permanentPasswordExpiresAt: new Date(Date.now() + 86_400_000),
   };
 
   it('accepts an existing user and a legacy credential at epoch zero', () => {
@@ -42,5 +44,31 @@ describe('user credential validation', () => {
     }
 
     expect(() => assertUserCredentialIsValid(rotatedUser, 1)).not.toThrow();
+  });
+
+  it('rejects a password with a missing or expired permanent-password deadline', () => {
+    for (const permanentPasswordExpiresAt of [null, new Date(Date.now() - 1)]) {
+      expect(() =>
+        assertUserCredentialIsValid(
+          { ...enabledUser, permanentPasswordExpiresAt },
+          0,
+        ),
+      ).toThrow(
+        expect.objectContaining({ code: AuthExceptionCode.UNAUTHENTICATED }),
+      );
+    }
+  });
+
+  it('does not apply permanent-password expiry to users without a password hash', () => {
+    expect(() =>
+      assertUserCredentialIsValid(
+        {
+          ...enabledUser,
+          passwordHash: null,
+          permanentPasswordExpiresAt: null,
+        },
+        0,
+      ),
+    ).not.toThrow();
   });
 });

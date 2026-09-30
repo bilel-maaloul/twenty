@@ -10,10 +10,15 @@ import { UserSessionCookieService } from 'src/engine/core-modules/user-session/s
 import { UserSessionService } from 'src/engine/core-modules/user-session/services/user-session.service';
 import { UserSessionEntity } from 'src/engine/core-modules/user-session/user-session.entity';
 import { UserSessionResolver } from 'src/engine/core-modules/user-session/user-session.resolver';
+import { UserWorkspaceEntity } from 'src/engine/core-modules/user-workspace/user-workspace.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserSessionEntity, AppTokenEntity]),
+    TypeOrmModule.forFeature([
+      UserSessionEntity,
+      AppTokenEntity,
+      UserWorkspaceEntity,
+    ]),
     JwtModule,
     EventLogEmitterModule,
   ],

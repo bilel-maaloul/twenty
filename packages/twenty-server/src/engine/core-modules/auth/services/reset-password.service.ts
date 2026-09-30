@@ -26,11 +26,11 @@ import { type ValidatePasswordResetTokenDTO } from 'src/engine/core-modules/auth
 import { type PasswordResetToken } from 'src/engine/core-modules/auth/types/password-reset-token.type';
 import { type PasswordResetTokenGenerationResult } from 'src/engine/core-modules/auth/types/password-reset-token-generation-result.type';
 import { WorkspaceDomainsService } from 'src/engine/core-modules/domain/workspace-domains/services/workspace-domains.service';
-import { EmailService } from 'src/engine/core-modules/email/email.service';
+import { EmailSenderService } from 'src/engine/core-modules/email/email-sender.service';
 import { I18nService } from 'src/engine/core-modules/i18n/i18n.service';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import { UserService } from 'src/engine/core-modules/user/services/user.service';
-import { type UserEntity } from 'src/engine/core-modules/user/user.entity';
+import { UserEntity } from 'src/engine/core-modules/user/user.entity';
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
 
 @Injectable()
@@ -44,7 +44,7 @@ export class ResetPasswordService {
     private readonly workspaceRepository: Repository<WorkspaceEntity>,
     @InjectRepository(AppTokenEntity)
     private readonly appTokenRepository: Repository<AppTokenEntity>,
-    private readonly emailService: EmailService,
+    private readonly emailSenderService: EmailSenderService,
     private readonly i18nService: I18nService,
     private readonly userService: UserService,
   ) {}
@@ -70,6 +70,8 @@ export class ResetPasswordService {
 
       return;
     }
+
+    await this.emailSenderService.verifySensitiveDelivery();
 
     await this.rotatePasswordResetToken({
       userId: generationResult.user.id,
@@ -143,6 +145,13 @@ export class ResetPasswordService {
       .digest('hex');
 
     await this.appTokenRepository.manager.transaction(async (entityManager) => {
+      const userRepository = entityManager.getRepository(UserEntity);
+
+      await userRepository.findOne({
+        where: { id: userId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
       const appTokenRepository = entityManager.getRepository(AppTokenEntity);
 
       await appTokenRepository.update(
@@ -238,7 +247,7 @@ export class ResetPasswordService {
       : msg`Action Needed to Set Password`;
     const subject = i18n._(subjectTemplate);
 
-    await this.emailService.send({
+    await this.emailSenderService.sendSensitive({
       from: `${this.twentyConfigService.get(
         'EMAIL_FROM_NAME',
       )} <${this.twentyConfigService.get('EMAIL_FROM_ADDRESS')}>`,
@@ -265,6 +274,7 @@ export class ResetPasswordService {
         type: AppTokenType.PasswordResetToken,
         expiresAt: MoreThan(new Date()),
         revokedAt: IsNull(),
+        deletedAt: IsNull(),
       },
     });
 
@@ -285,6 +295,39 @@ export class ResetPasswordService {
       email: user.email,
       hasPassword: isDefined(user.passwordHash),
     };
+  }
+
+  async consumePasswordResetToken({
+    resetToken,
+    userId,
+  }: {
+    resetToken: string;
+    userId: string;
+  }): Promise<void> {
+    const hashedResetToken = crypto
+      .createHash('sha256')
+      .update(resetToken)
+      .digest('hex');
+    const now = new Date();
+
+    const result = await this.appTokenRepository.update(
+      {
+        userId,
+        value: hashedResetToken,
+        type: AppTokenType.PasswordResetToken,
+        expiresAt: MoreThan(now),
+        revokedAt: IsNull(),
+        deletedAt: IsNull(),
+      },
+      { revokedAt: now },
+    );
+
+    if (result.affected !== 1) {
+      throw new AuthException(
+        'Token is invalid',
+        AuthExceptionCode.FORBIDDEN_EXCEPTION,
+      );
+    }
   }
 
   async invalidatePasswordResetToken(

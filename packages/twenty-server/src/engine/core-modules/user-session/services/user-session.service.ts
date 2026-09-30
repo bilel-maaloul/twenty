@@ -34,6 +34,7 @@ import { UserSessionCookieService } from 'src/engine/core-modules/user-session/s
 import { type CachedUserSession } from 'src/engine/core-modules/user-session/types/cached-user-session.type';
 import { type CreateUserSessionInput } from 'src/engine/core-modules/user-session/types/create-user-session-input.type';
 import { type UserSessionCreationOrigin } from 'src/engine/core-modules/user-session/types/user-session-creation-origin.type';
+import { UserWorkspaceEntity } from 'src/engine/core-modules/user-workspace/user-workspace.entity';
 import { isRequestOriginAllowed } from 'src/engine/core-modules/user-session/utils/is-request-origin-allowed.util';
 import { generateUserSessionToken } from 'src/engine/core-modules/user-session/utils/generate-user-session-token.util';
 import { hashUserSessionToken } from 'src/engine/core-modules/user-session/utils/hash-user-session-token.util';
@@ -58,6 +59,8 @@ export class UserSessionService {
     private readonly userSessionRepository: Repository<UserSessionEntity>,
     @InjectRepository(AppTokenEntity)
     private readonly appTokenRepository: Repository<AppTokenEntity>,
+    @InjectRepository(UserWorkspaceEntity)
+    private readonly userWorkspaceRepository: Repository<UserWorkspaceEntity>,
     @InjectCacheStorage(CacheStorageNamespace.EngineAuthSession)
     private readonly cacheStorageService: CacheStorageService,
     private readonly twentyConfigService: TwentyConfigService,
@@ -314,6 +317,20 @@ export class UserSessionService {
     const now = new Date();
     const sessionToken = generateUserSessionToken();
 
+    if (
+      input.origin === 'sign_in' &&
+      input.isImpersonating !== true &&
+      isDefined(input.workspaceId) &&
+      isDefined(input.userWorkspaceId)
+    ) {
+      await this.recordWorkspaceHumanActivity({
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        userWorkspaceId: input.userWorkspaceId,
+        lastHumanInteractiveActivityAt: now,
+      });
+    }
+
     const session = await this.userSessionRepository.save(
       this.userSessionRepository.create({
         tokenHash: hashUserSessionToken(sessionToken),
@@ -555,6 +572,47 @@ export class UserSessionService {
     return revokedSessions.length;
   }
 
+  async revokeAllSessionsForUserWorkspaces({
+    userWorkspaceIds,
+    reason,
+  }: {
+    userWorkspaceIds: string[];
+    reason: UserSessionRevokedReason;
+  }): Promise<number> {
+    const { raw } = await this.userSessionRepository
+      .createQueryBuilder()
+      .update(UserSessionEntity)
+      .set({ revokedAt: new Date(), revokedReason: reason })
+      .where('"userWorkspaceId" IN (:...userWorkspaceIds)', {
+        userWorkspaceIds,
+      })
+      .andWhere('"revokedAt" IS NULL')
+      .returning(['id', 'tokenHash', 'userId', 'workspaceId', 'authProvider'])
+      .execute();
+
+    const revokedSessions = raw as Pick<
+      UserSessionEntity,
+      'id' | 'tokenHash' | 'userId' | 'workspaceId' | 'authProvider'
+    >[];
+
+    if (revokedSessions.length === 0) {
+      return 0;
+    }
+
+    for (const revokedSession of revokedSessions) {
+      this.emitAuthSessionEvent(
+        revokedSession as UserSessionEntity,
+        'session_revoked',
+      );
+    }
+
+    await this.cacheStorageService.mdel(
+      revokedSessions.map((revokedSession) => revokedSession.tokenHash),
+    );
+
+    return revokedSessions.length;
+  }
+
   async signOut({
     sessionToken,
     refreshToken,
@@ -679,6 +737,19 @@ export class UserSessionService {
       return false;
     }
 
+    if (
+      cachedSession.workspaceId &&
+      cachedSession.userWorkspaceId &&
+      cachedSession.isImpersonating !== true
+    ) {
+      await this.recordWorkspaceHumanActivity({
+        userId: cachedSession.userId,
+        workspaceId: cachedSession.workspaceId,
+        userWorkspaceId: cachedSession.userWorkspaceId,
+        lastHumanInteractiveActivityAt: now,
+      });
+    }
+
     let affected: number | null | undefined;
 
     try {
@@ -712,6 +783,33 @@ export class UserSessionService {
     await this.assertNotRevokedAfterCaching(cachedSession.sessionId, tokenHash);
 
     return true;
+  }
+
+  private async recordWorkspaceHumanActivity({
+    userId,
+    workspaceId,
+    userWorkspaceId,
+    lastHumanInteractiveActivityAt,
+  }: {
+    userId: string;
+    workspaceId: string;
+    userWorkspaceId: string;
+    lastHumanInteractiveActivityAt: Date;
+  }): Promise<void> {
+    const { affected } = await this.userWorkspaceRepository.update(
+      {
+        id: userWorkspaceId,
+        userId,
+        workspaceId,
+        deletedAt: IsNull(),
+        suspendedAt: IsNull(),
+      },
+      { lastHumanInteractiveActivityAt },
+    );
+
+    if (affected !== 1) {
+      throw buildInvalidSessionException();
+    }
   }
 
   private toCachedSession(session: UserSessionEntity): CachedUserSession {

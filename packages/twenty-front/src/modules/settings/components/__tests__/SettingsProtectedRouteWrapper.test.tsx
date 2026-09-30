@@ -9,6 +9,10 @@ import { WorkspaceSurfaceContext } from '@/ui/layout/contexts/WorkspaceSurfaceCo
 import { PermissionFlagType } from '~/generated-metadata/graphql';
 import { messages } from '~/locales/generated/en';
 
+jest.mock('twenty-shared/utils', () => ({
+  getSettingsPath: () => '/settings/profile',
+}));
+
 i18n.load({
   [SOURCE_LOCALE]: messages,
 });

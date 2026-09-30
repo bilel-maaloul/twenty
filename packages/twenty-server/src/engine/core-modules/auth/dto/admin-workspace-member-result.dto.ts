@@ -2,6 +2,7 @@ import { Field, ObjectType, registerEnumType } from '@nestjs/graphql';
 
 export enum ProvisionWorkspaceMemberStatus {
   READY = 'READY',
+  RESTORED_AND_INVITED = 'RESTORED_AND_INVITED',
   REVIEW_REQUIRED = 'REVIEW_REQUIRED',
   UNAVAILABLE = 'UNAVAILABLE',
   DELIVERY_UNAVAILABLE = 'DELIVERY_UNAVAILABLE',

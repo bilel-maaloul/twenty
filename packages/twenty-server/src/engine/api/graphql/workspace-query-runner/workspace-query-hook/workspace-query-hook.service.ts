@@ -47,6 +47,12 @@ export class WorkspaceQueryHookService {
 
       // TODO: Is it really a good idea ?
       payload = merge(payload, hookPayload);
+
+      if (Object.hasOwn(hookPayload, 'filter')) {
+        (payload as { filter?: unknown }).filter = (
+          hookPayload as { filter?: unknown }
+        ).filter;
+      }
     }
 
     return payload;

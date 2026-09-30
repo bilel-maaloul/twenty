@@ -11,5 +11,8 @@ export const fromUserWorkspaceEntityToFlat = (
   locale: entity.locale,
   createdAt: entity.createdAt.toISOString(),
   updatedAt: entity.updatedAt.toISOString(),
+  lastHumanInteractiveActivityAt:
+    entity.lastHumanInteractiveActivityAt.toISOString(),
+  suspendedAt: entity.suspendedAt?.toISOString() ?? null,
   deletedAt: entity.deletedAt?.toISOString() ?? null,
 });

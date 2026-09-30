@@ -21,6 +21,10 @@ import { provideWorkspaceScopedRepository } from 'src/engine/twenty-orm/workspac
 import { RoleValidationModule } from 'src/engine/metadata-modules/role-validation/role-validation.module';
 import { UserRoleModule } from 'src/engine/metadata-modules/user-role/user-role.module';
 import { WorkspaceDataSourceModule } from 'src/engine/workspace-datasource/workspace-datasource.module';
+import { UserSessionModule } from 'src/engine/core-modules/user-session/user-session.module';
+import { UserWorkspaceInactivityCronCommand } from 'src/engine/core-modules/user-workspace/crons/commands/user-workspace-inactivity.cron.command';
+import { UserWorkspaceInactivityCronJob } from 'src/engine/core-modules/user-workspace/crons/jobs/user-workspace-inactivity.cron.job';
+import { UserWorkspaceInactivityService } from 'src/engine/core-modules/user-workspace/services/user-workspace-inactivity.service';
 
 @Module({
   imports: [
@@ -43,11 +47,19 @@ import { WorkspaceDataSourceModule } from 'src/engine/workspace-datasource/works
     EnterpriseModule,
     FeatureFlagModule,
     CoreEntityCacheModule,
+    UserSessionModule,
   ],
-  exports: [UserWorkspaceService],
+  exports: [
+    UserWorkspaceService,
+    UserWorkspaceInactivityService,
+    UserWorkspaceInactivityCronCommand,
+  ],
   providers: [
     UserWorkspaceService,
     UserWorkspaceEntityCacheProviderService,
+    UserWorkspaceInactivityService,
+    UserWorkspaceInactivityCronJob,
+    UserWorkspaceInactivityCronCommand,
     provideWorkspaceScopedRepository(RoleTargetEntity),
   ],
 })

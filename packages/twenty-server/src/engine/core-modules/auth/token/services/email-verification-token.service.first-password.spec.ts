@@ -20,7 +20,7 @@ describe('EmailVerificationTokenService first-password boundary', () => {
     ) as EmailVerificationTokenService;
 
     await expect(
-      service.validateEmailVerificationTokenOrThrow({
+      service.consumeEmailVerificationTokenOrThrow({
         email: 'first@example.com',
         emailVerificationToken: 'valid-verification-token',
       }),

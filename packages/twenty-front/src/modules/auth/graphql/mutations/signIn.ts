@@ -4,6 +4,9 @@ export const SIGN_IN = gql`
   mutation SignIn($email: String!, $password: String!, $captchaToken: String) {
     signIn(email: $email, password: $password, captchaToken: $captchaToken) {
       requiresFirstPasswordCreation
+      requiresPasswordReset
+      requiresEmailOtp
+      emailOtpChallengeId
       availableWorkspaces {
         ...AvailableWorkspacesFragment
       }
