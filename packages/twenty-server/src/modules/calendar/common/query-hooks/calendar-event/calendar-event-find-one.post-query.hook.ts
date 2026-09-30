@@ -48,6 +48,7 @@ export class CalendarEventFindOnePostQueryHook implements WorkspacePostQueryHook
       payload,
       workspace.id,
       userId,
+      isUserContext ? authContext.workspaceMemberId : undefined,
     );
   }
 }

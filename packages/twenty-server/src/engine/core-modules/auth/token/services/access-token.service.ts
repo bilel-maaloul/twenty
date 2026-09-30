@@ -7,7 +7,7 @@ import { type Request } from 'express';
 import ms from 'ms';
 import { assertIsDefinedOrThrow } from 'twenty-shared/utils';
 import { isWorkspaceProvisioned } from 'twenty-shared/workspace';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 import {
   AuthException,
@@ -28,7 +28,7 @@ import { UserWorkspaceEntity } from 'src/engine/core-modules/user-workspace/user
 import { UserWorkspaceNotFoundDefaultError } from 'src/engine/core-modules/user-workspace/user-workspace.exception';
 import { UserEntity } from 'src/engine/core-modules/user/user.entity';
 import { userValidator } from 'src/engine/core-modules/user/user.validate';
-import { assertUserCanAuthenticate } from 'src/engine/core-modules/auth/utils/assert-user-credential-is-valid.util';
+import { assertUserCredentialIsValid } from 'src/engine/core-modules/auth/utils/assert-user-credential-is-valid.util';
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
 import { WorkspaceNotFoundDefaultError } from 'src/engine/core-modules/workspace/workspace.exception';
 import { WorkspaceOrmManager } from 'src/engine/twenty-orm/workspace-orm.manager';
@@ -65,7 +65,7 @@ export class AccessTokenService {
       this.userRepository.findOne({ where: { id: userId } }),
       this.workspaceRepository.findOne({ where: { id: workspaceId } }),
       this.userWorkspaceRepository.findOne({
-        where: { userId, workspaceId },
+        where: { userId, workspaceId, suspendedAt: IsNull() },
       }),
     ]);
 
@@ -73,7 +73,7 @@ export class AccessTokenService {
       user,
       new AuthException('User is not found', AuthExceptionCode.INVALID_INPUT),
     );
-    assertUserCanAuthenticate(user);
+    assertUserCredentialIsValid(user, user.credentialEpoch);
     assertIsDefinedOrThrow(workspace, WorkspaceNotFoundDefaultError);
     assertIsDefinedOrThrow(userWorkspace, UserWorkspaceNotFoundDefaultError);
 
@@ -119,15 +119,26 @@ export class AccessTokenService {
     isImpersonating,
     impersonatorUserWorkspaceId,
     impersonatedUserWorkspaceId,
+    expectedCredentialEpoch,
   }: Omit<
     AccessTokenJwtPayload,
     'type' | 'workspaceMemberId' | 'userWorkspaceId' | 'sub' | 'credentialEpoch'
-  >): Promise<AuthToken> {
+  > & { expectedCredentialEpoch?: number }): Promise<AuthToken> {
     const expiresIn = this.twentyConfigService.get('ACCESS_TOKEN_EXPIRES_IN');
     const expiresAt = addMilliseconds(new Date().getTime(), ms(expiresIn));
 
     const { user, userWorkspace, workspaceMemberId } =
       await this.resolveTokenSubject(userId, workspaceId);
+
+    if (
+      expectedCredentialEpoch !== undefined &&
+      user.credentialEpoch !== expectedCredentialEpoch
+    ) {
+      throw new AuthException(
+        'Credential is no longer valid',
+        AuthExceptionCode.UNAUTHENTICATED,
+      );
+    }
 
     const jwtPayload: AccessTokenJwtPayload = {
       sub: user.id,

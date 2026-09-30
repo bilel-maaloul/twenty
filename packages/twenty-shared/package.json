@@ -101,6 +101,11 @@
       "import": "./dist/metadata.mjs",
       "require": "./dist/metadata.cjs"
     },
+    "./security": {
+      "types": "./dist/security/index.d.ts",
+      "import": "./dist/security.mjs",
+      "require": "./dist/security.cjs"
+    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing.mjs",
@@ -151,6 +156,7 @@
     "i18n",
     "logic-function",
     "metadata",
+    "security",
     "testing",
     "timeline",
     "translations",
@@ -182,6 +188,9 @@
       ],
       "metadata": [
         "dist/metadata/index.d.ts"
+      ],
+      "security": [
+        "dist/security/index.d.ts"
       ],
       "testing": [
         "dist/testing/index.d.ts"

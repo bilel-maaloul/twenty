@@ -190,6 +190,7 @@ import { AddIsSystemToSkillFastInstanceCommand } from 'src/database/commands/upg
 import { MigrateCanvasTabsToVerticalListSlowInstanceCommand } from 'src/database/commands/upgrade-version-command/2-40/2-40-instance-command-slow-1789139070588-migrate-canvas-tabs-to-vertical-list';
 import { AddWorkspaceWorkflowIdToWorkflowFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-41/2-41-instance-command-fast-1789350000001-add-workspace-workflow-id-to-workflow';
 import { AuthCredentialStateFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-41/2-41-instance-command-fast-1790178386207-auth-credential-state';
+import { AccountLifecycleAndPasswordExpiryFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-41/2-41-instance-command-fast-1790685461857-account-lifecycle-and-password-expiry';
 
 export const INSTANCE_COMMANDS = [
   AddViewFieldGroupIdIndexOnViewFieldFastInstanceCommand,
@@ -382,4 +383,5 @@ export const INSTANCE_COMMANDS = [
   MigrateCanvasTabsToVerticalListSlowInstanceCommand,
   AddWorkspaceWorkflowIdToWorkflowFastInstanceCommand,
   AuthCredentialStateFastInstanceCommand,
+  AccountLifecycleAndPasswordExpiryFastInstanceCommand,
 ];

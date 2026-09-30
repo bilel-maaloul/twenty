@@ -15,6 +15,8 @@ export const SIGN_UP = gql`
       locale: $locale
       verifyEmailRedirectPath: $verifyEmailRedirectPath
     ) {
+      requiresEmailOtp
+      emailOtpChallengeId
       availableWorkspaces {
         ...AvailableWorkspacesFragment
       }

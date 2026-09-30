@@ -16,6 +16,8 @@ import {
   currentUserState,
 } from '@/auth/states/currentUserState';
 import { isCookieAuthActiveState } from '@/auth/states/isCookieAuthActiveState';
+import { isMultiWorkspaceEnabledState } from '@/client-config/states/isMultiWorkspaceEnabledState';
+import { interactiveEmailOtpChallengeIdState } from '@/auth/states/interactiveEmailOtpChallengeIdState';
 import {
   type CurrentWorkspace,
   currentWorkspaceState,
@@ -25,6 +27,7 @@ import { SnackBarComponentInstanceContext } from '@/ui/feedback/snack-bar-manage
 import { renderHook } from '@testing-library/react';
 import { getDefaultStore } from 'jotai';
 import { WorkspaceActivationStatus } from 'twenty-shared/workspace';
+import { AppPath } from 'twenty-shared/types';
 
 const redirectSpy = jest.fn();
 const navigateSpy = jest.fn();
@@ -45,6 +48,12 @@ const mockLoadCurrentUser = jest.fn().mockResolvedValue({
     },
   },
 });
+
+jest.mock('twenty-shared/utils', () => ({
+  isDefined: (value: unknown) => value !== undefined && value !== null,
+  isNonEmptyString: (value: unknown) =>
+    typeof value === 'string' && value.length > 0,
+}));
 
 jest.mock('@/users/hooks/useLoadCurrentUser', () => ({
   useLoadCurrentUser: () => ({ loadCurrentUser: mockLoadCurrentUser }),
@@ -126,9 +135,10 @@ describe('useAuth', () => {
     jest.clearAllMocks();
     getDefaultStore().set(returnToPathState.atom, '');
     getDefaultStore().set(isCookieAuthActiveState.atom, false);
+    getDefaultStore().set(isMultiWorkspaceEnabledState.atom, false);
   });
 
-  it('should return login token object', async () => {
+  it('returns a normal login token from workspace password validation', async () => {
     const { result } = renderHooks();
 
     await act(async () => {
@@ -151,18 +161,25 @@ describe('useAuth', () => {
     expect(mockLoadCurrentUser).toHaveBeenCalled();
   });
 
-  it('should handle credential sign-in', async () => {
+  it('completes workspace password sign-in without an email OTP challenge', async () => {
     const { result } = renderHooks();
 
     await act(async () => {
-      await result.current.signInWithCredentialsInWorkspace(email, password);
+      expect(
+        await result.current.signInWithCredentialsInWorkspace(email, password),
+      ).toBe('normal');
     });
 
     expect(mocks.getLoginTokenFromCredentials.result).toHaveBeenCalled();
+    expect(
+      getDefaultStore().get(interactiveEmailOtpChallengeIdState.atom),
+    ).toBeNull();
     expect(mocks.getAuthTokensFromLoginToken.result).toHaveBeenCalled();
+    expect(mockLoadCurrentUser).toHaveBeenCalled();
+    expect(getDefaultStore().get(isCookieAuthActiveState.atom)).toBe(true);
   });
 
-  it('keeps normal global sign-in behavior', async () => {
+  it('completes global password sign-in without creating an email OTP challenge', async () => {
     const { result } = renderHooks();
 
     await act(async () => {
@@ -172,9 +189,119 @@ describe('useAuth', () => {
     });
 
     expect(mocks.signIn.result).toHaveBeenCalled();
+    expect(
+      getDefaultStore().get(interactiveEmailOtpChallengeIdState.atom),
+    ).toBeNull();
     expect(mockLoadCurrentUser).toHaveBeenCalled();
     expect(getDefaultStore().get(isCookieAuthActiveState.atom)).toBe(true);
     expect(navigateSpy).not.toHaveBeenCalledWith('/create-first-password');
+  });
+
+  it('enters the CRM directly after first-password creation in simple mode', async () => {
+    getDefaultStore().set(isMultiWorkspaceEnabledState.atom, false);
+    const { result } = renderHooks();
+
+    await act(async () => {
+      await result.current.completeFirstPasswordSignIn();
+    });
+
+    expect(mockLoadCurrentUser).toHaveBeenCalled();
+    expect(getDefaultStore().get(isCookieAuthActiveState.atom)).toBe(true);
+    expect(navigateSpy).toHaveBeenCalledWith(AppPath.Index, { replace: true });
+    expect(redirectSpy).not.toHaveBeenCalled();
+  });
+
+  it('enters the current workspace directly after first-password creation', async () => {
+    getDefaultStore().set(isMultiWorkspaceEnabledState.atom, true);
+    mockLoadCurrentUser.mockResolvedValueOnce({
+      user: {
+        email,
+        currentWorkspace: { id: 'invited-workspace-id' },
+        availableWorkspaces: {
+          availableWorkspacesForSignIn: [],
+          availableWorkspacesForSignUp: [],
+        },
+      },
+    });
+    const { result } = renderHooks();
+
+    await act(async () => {
+      await result.current.completeFirstPasswordSignIn();
+    });
+
+    expect(navigateSpy).toHaveBeenCalledWith(AppPath.Index, { replace: true });
+    expect(redirectSpy).not.toHaveBeenCalled();
+  });
+
+  it('verifies an invitation passcode before navigating to password creation', async () => {
+    const { result } = renderHooks();
+
+    await act(async () => {
+      await result.current.verifyFirstPasswordInvitationPasscode(
+        email,
+        '123456',
+      );
+    });
+
+    expect(
+      mocks.verifyFirstPasswordInvitationPasscode.result,
+    ).toHaveBeenCalled();
+    expect(navigateSpy).toHaveBeenCalledWith(AppPath.CreateFirstPassword);
+    expect(mocks.signIn.result).not.toHaveBeenCalled();
+    expect(mockLoadCurrentUser).not.toHaveBeenCalled();
+    expect(getDefaultStore().get(isCookieAuthActiveState.atom)).toBe(false);
+  });
+
+  it('routes an expired permanent password to reset without creating a session', async () => {
+    mocks.signIn.result.mockImplementationOnce(() => ({
+      data: {
+        signIn: {
+          __typename: 'AvailableWorkspacesAndAccessTokens',
+          requiresFirstPasswordCreation: false,
+          requiresPasswordReset: true,
+          requiresEmailOtp: false,
+          emailOtpChallengeId: '',
+          tokens: null,
+          availableWorkspaces: null,
+        },
+      },
+    }));
+    const { result } = renderHooks();
+
+    await act(async () => {
+      expect(await result.current.signInWithCredentials(email, password)).toBe(
+        'password-expired',
+      );
+    });
+
+    expect(mockLoadCurrentUser).not.toHaveBeenCalled();
+    expect(getDefaultStore().get(isCookieAuthActiveState.atom)).toBe(false);
+  });
+
+  it('routes an expired workspace password to reset before token exchange', async () => {
+    mocks.getLoginTokenFromCredentials.result.mockImplementationOnce(() => ({
+      data: {
+        getLoginTokenFromCredentials: {
+          __typename: 'LoginToken',
+          requiresFirstPasswordCreation: false,
+          requiresPasswordReset: true,
+          requiresEmailOtp: false,
+          emailOtpChallengeId: '',
+          loginToken: null,
+        },
+      },
+    }));
+    const { result } = renderHooks();
+
+    await act(async () => {
+      expect(
+        await result.current.signInWithCredentialsInWorkspace(email, password),
+      ).toBe('password-expired');
+    });
+
+    expect(mocks.getAuthTokensFromLoginToken.result).not.toHaveBeenCalled();
+    expect(mockLoadCurrentUser).not.toHaveBeenCalled();
+    expect(getDefaultStore().get(isCookieAuthActiveState.atom)).toBe(false);
   });
 
   it('routes restricted workspace sign-in before token exchange', async () => {
@@ -183,6 +310,9 @@ describe('useAuth', () => {
         getLoginTokenFromCredentials: {
           __typename: 'LoginToken',
           requiresFirstPasswordCreation: true,
+          requiresPasswordReset: false,
+          requiresEmailOtp: false,
+          emailOtpChallengeId: '',
           loginToken: null,
         },
       },
@@ -207,6 +337,9 @@ describe('useAuth', () => {
         signIn: {
           __typename: 'AvailableWorkspacesAndAccessTokens',
           requiresFirstPasswordCreation: true,
+          requiresPasswordReset: false,
+          requiresEmailOtp: false,
+          emailOtpChallengeId: '',
           availableWorkspaces: null,
           tokens: null,
         },

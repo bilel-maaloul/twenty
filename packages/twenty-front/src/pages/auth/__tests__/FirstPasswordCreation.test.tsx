@@ -5,19 +5,51 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { AppPath } from 'twenty-shared/types';
 
+import { useAuth } from '@/auth/hooks/useAuth';
+import { useCaptcha } from '@/client-config/hooks/useCaptcha';
+import { useReadCaptchaToken } from '@/captcha/hooks/useReadCaptchaToken';
+import { useRequestFreshCaptchaToken } from '@/captcha/hooks/useRequestFreshCaptchaToken';
 import { CreateFirstPasswordDocument } from '~/generated-metadata/graphql';
+import { HasFirstPasswordCreationCapabilityDocument } from '~/generated-metadata/graphql';
 import { FirstPasswordCreation } from '~/pages/auth/FirstPasswordCreation';
+
+jest.mock('twenty-shared/utils', () => ({
+  isDefined: (value: unknown) => value !== undefined && value !== null,
+}));
 
 const navigateSpy = jest.fn();
 const enqueueErrorSnackBar = jest.fn();
 const enqueueSuccessSnackBar = jest.fn();
-const mutationSpy = jest.fn();
+const completeFirstPasswordSignIn = jest.fn();
+const requestFreshCaptchaToken = jest.fn();
+const readCaptchaToken = jest.fn(() => 'captcha-token');
+const createPasswordSpy = jest.fn();
 
 i18n.activate('en');
 
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
   useNavigate: () => navigateSpy,
+}));
+
+jest.mock('@/auth/hooks/useAuth', () => ({
+  useAuth: () => ({ completeFirstPasswordSignIn }),
+}));
+
+jest.mock('@/client-config/hooks/useCaptcha', () => ({
+  useCaptcha: jest.fn(() => ({ isCaptchaReady: true })),
+}));
+
+jest.mock('@/captcha/hooks/useReadCaptchaToken', () => ({
+  useReadCaptchaToken: () => ({ readCaptchaToken }),
+}));
+
+jest.mock('@/captcha/hooks/useRequestFreshCaptchaToken', () => ({
+  useRequestFreshCaptchaToken: () => ({ requestFreshCaptchaToken }),
+}));
+
+jest.mock('@/captcha/components/CaptchaCheckbox', () => ({
+  CaptchaCheckbox: () => <div role="group" aria-label="I'm not a robot" />,
 }));
 
 jest.mock('@/ui/feedback/snack-bar-manager/hooks/useSnackBar', () => ({
@@ -71,24 +103,18 @@ jest.mock('@/ui/input/components/TextInput', () => ({
   ),
 }));
 
-const renderPage = (response: object | object[]) =>
+const capabilityMock = (hasCapability: boolean) => ({
+  request: { query: HasFirstPasswordCreationCapabilityDocument },
+  result: { data: { hasFirstPasswordCreationCapability: hasCapability } },
+});
+
+const renderPage = (
+  hasCapability: boolean,
+  additionalMocks: Array<Record<string, unknown>> = [],
+) =>
   render(
     <MockedProvider
-      mocks={(Array.isArray(response) ? response : [response]).map(
-        (result) => ({
-          request: {
-            query: CreateFirstPasswordDocument,
-            variables: {
-              newPassword: 'FreshPassword123',
-              confirmPassword: 'FreshPassword123',
-            },
-          },
-          result: () => {
-            mutationSpy();
-            return result;
-          },
-        }),
-      )}
+      mocks={[capabilityMock(hasCapability), ...additionalMocks] as never}
     >
       <I18nProvider i18n={i18n}>
         <MemoryRouter initialEntries={[AppPath.CreateFirstPassword]}>
@@ -103,8 +129,8 @@ const renderPage = (response: object | object[]) =>
     </MockedProvider>,
   );
 
-const submitValidPassword = () => {
-  fireEvent.change(screen.getByPlaceholderText('New Password'), {
+const submitValidPassword = async () => {
+  fireEvent.change(await screen.findByPlaceholderText('New Password'), {
     target: { value: 'FreshPassword123' },
   });
   fireEvent.change(screen.getByPlaceholderText('Confirm Password'), {
@@ -113,13 +139,43 @@ const submitValidPassword = () => {
   fireEvent.click(screen.getByRole('button', { name: 'Create Password' }));
 };
 
+const createPasswordMock = (result: Record<string, unknown>) => ({
+  request: {
+    query: CreateFirstPasswordDocument,
+    variables: {
+      newPassword: 'FreshPassword123',
+      confirmPassword: 'FreshPassword123',
+      captchaToken: 'captcha-token',
+    },
+  },
+  result: () => {
+    createPasswordSpy();
+    return result;
+  },
+});
+
 describe('FirstPasswordCreation', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.mocked(useCaptcha).mockReturnValue({ isCaptchaReady: true } as never);
+  });
 
-  it('requires matching passwords before calling the mutation', async () => {
-    renderPage({ data: { createFirstPassword: true } });
+  it('redirects to normal sign-in when there is no restricted capability', async () => {
+    renderPage(false);
 
-    fireEvent.change(screen.getByPlaceholderText('New Password'), {
+    await waitFor(() =>
+      expect(navigateSpy).toHaveBeenCalledWith(AppPath.SignInUp, {
+        replace: true,
+      }),
+    );
+    expect(screen.queryByPlaceholderText('Email')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("I'm not a robot")).not.toBeInTheDocument();
+  });
+
+  it('requires matching passwords before calling the password mutation', async () => {
+    renderPage(true);
+
+    fireEvent.change(await screen.findByPlaceholderText('New Password'), {
       target: { value: 'FreshPassword123' },
     });
     fireEvent.change(screen.getByPlaceholderText('Confirm Password'), {
@@ -128,99 +184,97 @@ describe('FirstPasswordCreation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create Password' }));
 
     expect(await screen.findByText('Passwords do not match')).toBeTruthy();
-    expect(mutationSpy).not.toHaveBeenCalled();
+    expect(createPasswordSpy).not.toHaveBeenCalled();
   });
 
-  it('returns to sign-in after creation without establishing a session', async () => {
-    renderPage({ data: { createFirstPassword: true } });
-    submitValidPassword();
+  it('submits the CAPTCHA token and establishes the normal CRM session directly', async () => {
+    renderPage(true, [
+      createPasswordMock({
+        data: {
+          createFirstPassword: {
+            tokens: {
+              accessOrWorkspaceAgnosticToken: { token: 'access' },
+              refreshToken: { token: 'refresh' },
+            },
+          },
+        },
+      }),
+    ]);
+    await submitValidPassword();
 
-    await waitFor(() => expect(mutationSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(createPasswordSpy).toHaveBeenCalledTimes(1));
     await waitFor(() =>
-      expect(navigateSpy).toHaveBeenCalledWith('/welcome', { replace: true }),
+      expect(completeFirstPasswordSignIn).toHaveBeenCalledTimes(1),
     );
     expect(enqueueSuccessSnackBar).toHaveBeenCalled();
-  });
-
-  it('keeps the page available after a correctable password rejection', async () => {
-    renderPage({
-      errors: [
-        {
-          message: 'Invalid input',
-          extensions: { code: 'BAD_USER_INPUT', subCode: 'INVALID_INPUT' },
-        },
-      ],
-    });
-    submitValidPassword();
-
-    await waitFor(() => expect(enqueueErrorSnackBar).toHaveBeenCalled());
     expect(navigateSpy).not.toHaveBeenCalled();
-    expect(screen.getByPlaceholderText('New Password')).toBeTruthy();
   });
 
-  it('allows another submission after INVALID_INPUT without signing in automatically', async () => {
-    renderPage([
-      {
+  it('does not submit permanent password without a ready CAPTCHA', async () => {
+    jest.mocked(useCaptcha).mockReturnValue({ isCaptchaReady: false } as never);
+    renderPage(true);
+    await submitValidPassword();
+
+    expect(
+      await screen.findByRole('button', { name: 'Create Password' }),
+    ).toBeDisabled();
+    expect(createPasswordSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps the restricted page available after a correctable password rejection', async () => {
+    renderPage(true, [
+      createPasswordMock({
         errors: [
           {
             message: 'Invalid input',
             extensions: { code: 'BAD_USER_INPUT', subCode: 'INVALID_INPUT' },
           },
         ],
-      },
-      { data: { createFirstPassword: true } },
+      }),
     ]);
+    await submitValidPassword();
 
-    submitValidPassword();
-    await waitFor(() => expect(mutationSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(enqueueErrorSnackBar).toHaveBeenCalled());
     expect(navigateSpy).not.toHaveBeenCalled();
-
-    submitValidPassword();
-    await waitFor(() => expect(mutationSpy).toHaveBeenCalledTimes(2));
-    await waitFor(() =>
-      expect(navigateSpy).toHaveBeenCalledWith('/welcome', { replace: true }),
-    );
+    expect(screen.getByPlaceholderText('New Password')).toBeInTheDocument();
   });
 
-  it('does not submit a password shorter than the existing policy', async () => {
-    renderPage({ data: { createFirstPassword: true } });
-    fireEvent.change(screen.getByPlaceholderText('New Password'), {
-      target: { value: 'short' },
-    });
-    fireEvent.change(screen.getByPlaceholderText('Confirm Password'), {
-      target: { value: 'short' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Create Password' }));
+  it('refreshes CAPTCHA and keeps the restricted page after CAPTCHA rejection', async () => {
+    renderPage(true, [
+      createPasswordMock({
+        errors: [
+          {
+            message: 'Invalid CAPTCHA',
+            extensions: { code: 'BAD_USER_INPUT', subCode: 'INVALID_CAPTCHA' },
+          },
+        ],
+      }),
+    ]);
+    await submitValidPassword();
 
-    expect(
-      await screen.findByText('Password must be between 8 and 50 characters'),
-    ).toBeTruthy();
-    expect(mutationSpy).not.toHaveBeenCalled();
+    await waitFor(() => expect(requestFreshCaptchaToken).toHaveBeenCalled());
+    expect(navigateSpy).not.toHaveBeenCalled();
+    expect(screen.getByPlaceholderText('New Password')).toBeInTheDocument();
   });
 
-  it('returns to sign-in for an invalid capability', async () => {
-    renderPage({
-      errors: [
-        {
-          message: 'Forbidden',
-          extensions: { code: 'FORBIDDEN', subCode: 'FORBIDDEN_EXCEPTION' },
-        },
-      ],
-    });
+  it('returns to sign-in after the restricted capability is invalid', async () => {
+    renderPage(true, [
+      createPasswordMock({
+        errors: [
+          {
+            message: 'Forbidden',
+            extensions: { code: 'FORBIDDEN', subCode: 'FORBIDDEN_EXCEPTION' },
+          },
+        ],
+      }),
+    ]);
     submitValidPassword();
 
     await waitFor(() =>
-      expect(navigateSpy).toHaveBeenCalledWith('/welcome', { replace: true }),
+      expect(navigateSpy).toHaveBeenCalledWith(AppPath.SignInUp, {
+        replace: true,
+      }),
     );
-  });
-
-  it('does not retry an operational error', async () => {
-    renderPage({ errors: [{ message: 'Internal error' }] });
-    submitValidPassword();
-
-    await waitFor(() => expect(mutationSpy).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(navigateSpy).toHaveBeenCalledWith('/welcome', { replace: true }),
-    );
+    expect(completeFirstPasswordSignIn).not.toHaveBeenCalled();
   });
 });

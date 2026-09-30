@@ -48,6 +48,7 @@ describe('pre-Phase-1 user cache compatibility', () => {
       mustChangePassword,
       credentialEpoch,
       temporaryPasswordExpiresAt: null,
+      permanentPasswordExpiresAt: new Date(Date.now() + 86_400_000),
       userWorkspaces: [],
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -55,6 +56,14 @@ describe('pre-Phase-1 user cache compatibility', () => {
     });
     const userRepository = {
       findOne: jest.fn(async () => persistedUser),
+    };
+    const userWorkspaceRepository = {
+      findOne: jest.fn(
+        async ({ where }: { where: Record<string, string> }) => ({
+          ...where,
+          suspendedAt: null,
+        }),
+      ),
     };
     const cacheStorage = {
       get: jest.fn(async (key: string) => cacheEntries.get(key)),
@@ -120,7 +129,7 @@ describe('pre-Phase-1 user cache compatibility', () => {
     };
     const strategy = new JwtAuthStrategy(
       jwtWrapperService as never,
-      {} as never,
+      userWorkspaceRepository as never,
       {} as never,
       coreEntityCacheService,
       {} as never,
@@ -152,6 +161,11 @@ describe('pre-Phase-1 user cache compatibility', () => {
     );
     const authService = Object.assign(Object.create(AuthService.prototype), {
       userRepository,
+      passwordLoginLockoutService: {
+        isLocked: jest.fn().mockResolvedValue(false),
+        recordFailedAttempt: jest.fn(),
+        resetFailedAttempts: jest.fn().mockResolvedValue(true),
+      },
       twentyConfigService: { get: () => false },
     }) as AuthService;
 
@@ -241,6 +255,9 @@ describe('pre-Phase-1 user cache compatibility', () => {
       disabled: false,
       mustChangePassword: false,
       credentialEpoch: 0,
+      permanentPasswordExpiresAt: new Date(
+        Date.now() + 86_400_000,
+      ).toISOString(),
     });
     scenario.persistedUser.credentialEpoch = 1;
 
@@ -269,6 +286,8 @@ describe('pre-Phase-1 user cache compatibility', () => {
         disabled: true,
         mustChangePassword: true,
         credentialEpoch: true,
+        passwordHash: true,
+        permanentPasswordExpiresAt: true,
       },
     });
 
@@ -306,6 +325,46 @@ describe('pre-Phase-1 user cache compatibility', () => {
     ).resolves.toMatchObject({ user: { id: userId, credentialEpoch: 1 } });
   });
 
+  it('rejects a cached user after authoritative permanent-password expiry', async () => {
+    const scenario = await createScenario();
+    scenario.persistedUser.permanentPasswordExpiresAt = new Date(
+      Date.now() - 1,
+    );
+    scenario.cacheEntries.set(`user:${userId}:data`, {
+      id: userId,
+      email,
+      firstName: 'Cached',
+      lastName: 'User',
+      disabled: false,
+      mustChangePassword: false,
+      credentialEpoch: 0,
+      permanentPasswordExpiresAt: new Date(
+        Date.now() + 86_400_000,
+      ).toISOString(),
+    });
+    scenario.jwtWrapperService.decode.mockReturnValue({
+      sub: userId,
+      userId,
+      workspaceId,
+      userWorkspaceId,
+      type: JwtTokenTypeEnum.ACCESS,
+      credentialEpoch: 0,
+    });
+
+    await expect(
+      scenario.accessTokenService.validateTokenByRequest({
+        headers: { authorization: 'Bearer expired-password-session' },
+      } as never),
+    ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+    expect(scenario.userRepository.findOne).toHaveBeenCalledWith({
+      where: { id: userId },
+      select: expect.objectContaining({
+        passwordHash: true,
+        permanentPasswordExpiresAt: true,
+      }),
+    });
+  });
+
   it('rejects a legacy credential against a complete stale cache after rotation', async () => {
     const scenario = await createScenario();
 
@@ -315,6 +374,9 @@ describe('pre-Phase-1 user cache compatibility', () => {
       disabled: false,
       mustChangePassword: false,
       credentialEpoch: 0,
+      permanentPasswordExpiresAt: new Date(
+        Date.now() + 86_400_000,
+      ).toISOString(),
     });
     scenario.persistedUser.credentialEpoch = 1;
     scenario.jwtWrapperService.decode.mockReturnValue({
@@ -344,6 +406,9 @@ describe('pre-Phase-1 user cache compatibility', () => {
       disabled: false,
       mustChangePassword: false,
       credentialEpoch: 0,
+      permanentPasswordExpiresAt: new Date(
+        Date.now() + 86_400_000,
+      ).toISOString(),
     });
     scenario.userRepository.findOne.mockRejectedValueOnce(
       new Error('database unavailable'),
@@ -377,6 +442,9 @@ describe('pre-Phase-1 user cache compatibility', () => {
         disabled: false,
         mustChangePassword: false,
         credentialEpoch: 0,
+        permanentPasswordExpiresAt: new Date(
+          Date.now() + 86_400_000,
+        ).toISOString(),
       });
 
       scenario.jwtWrapperService.decode.mockReturnValue({
@@ -400,7 +468,12 @@ describe('pre-Phase-1 user cache compatibility', () => {
     },
   );
 
-  it.each(['disabled', 'mustChangePassword', 'credentialEpoch'] as const)(
+  it.each([
+    'disabled',
+    'mustChangePassword',
+    'credentialEpoch',
+    'permanentPasswordExpiresAt',
+  ] as const)(
     'refreshes a workspace-agnostic user cache missing %s',
     async (missingField) => {
       const scenario = await createScenario();
@@ -410,6 +483,9 @@ describe('pre-Phase-1 user cache compatibility', () => {
         disabled: false,
         mustChangePassword: false,
         credentialEpoch: 0,
+        permanentPasswordExpiresAt: new Date(
+          Date.now() + 86_400_000,
+        ).toISOString(),
       };
 
       Reflect.deleteProperty(cachedUser, missingField);

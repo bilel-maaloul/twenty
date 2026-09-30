@@ -15,6 +15,14 @@ import { buildSystemAuthContext } from 'src/engine/twenty-orm/utils/build-system
 import { type CalendarChannelEventAssociationWorkspaceEntity } from 'src/modules/calendar/common/standard-objects/calendar-channel-event-association.workspace-entity';
 import { type CalendarEventWorkspaceEntity } from 'src/modules/calendar/common/standard-objects/calendar-event.workspace-entity';
 
+type BuildCalendarEventAccessFilterArgs = {
+  workspaceId: string;
+  userWorkspaceId: string;
+  workspaceMemberId: string;
+  existingFilter?: unknown;
+  allowMetadataVisibility?: boolean;
+};
+
 @Injectable()
 export class ApplyCalendarEventsVisibilityRestrictionsService {
   constructor(
@@ -31,6 +39,7 @@ export class ApplyCalendarEventsVisibilityRestrictionsService {
     calendarEvents: CalendarEventWorkspaceEntity[],
     workspaceId: string,
     userId?: string,
+    workspaceMemberId?: string,
   ) {
     const authContext = buildSystemAuthContext(workspaceId);
 
@@ -71,6 +80,13 @@ export class ApplyCalendarEventsVisibilityRestrictionsService {
         );
 
         for (let i = calendarEvents.length - 1; i >= 0; i--) {
+          if (
+            isDefined(workspaceMemberId) &&
+            calendarEvents[i].ownerId === workspaceMemberId
+          ) {
+            continue;
+          }
+
           const associations = calendarChannelCalendarEventsAssociations.filter(
             (association) =>
               association.calendarEventId === calendarEvents[i].id,
@@ -139,5 +155,208 @@ export class ApplyCalendarEventsVisibilityRestrictionsService {
       authContext,
       { lite: true },
     );
+  }
+
+  public async buildUserAccessFilter({
+    workspaceId,
+    userWorkspaceId,
+    workspaceMemberId,
+    existingFilter,
+    allowMetadataVisibility = true,
+  }: BuildCalendarEventAccessFilterArgs): Promise<Record<string, unknown>> {
+    const channelVisibilities = allowMetadataVisibility
+      ? [
+          CalendarChannelVisibility.SHARE_EVERYTHING,
+          CalendarChannelVisibility.METADATA,
+        ]
+      : [CalendarChannelVisibility.SHARE_EVERYTHING];
+
+    const [sharedChannels, connectedAccounts] = await Promise.all([
+      this.calendarChannelRepository.find({
+        where: {
+          workspaceId,
+          visibility: In(channelVisibilities),
+        },
+        select: ['id'],
+      }),
+      this.connectedAccountRepository.find({
+        where: { workspaceId, userWorkspaceId },
+        relations: { calendarChannels: true },
+        select: {
+          id: true,
+          calendarChannels: { id: true },
+        },
+      }),
+    ]);
+
+    const visibleCalendarChannelIds = new Set(
+      sharedChannels.map(({ id }) => id),
+    );
+
+    for (const connectedAccount of connectedAccounts) {
+      for (const calendarChannel of connectedAccount.calendarChannels ?? []) {
+        visibleCalendarChannelIds.add(calendarChannel.id);
+      }
+    }
+
+    const allowedRecords = [
+      { ownerId: { eq: workspaceMemberId } },
+      ...(visibleCalendarChannelIds.size > 0
+        ? [
+            {
+              calendarChannelEventAssociations: {
+                calendarChannelId: {
+                  in: [...visibleCalendarChannelIds],
+                },
+              },
+            },
+          ]
+        : []),
+    ];
+
+    const accessFilter = { or: allowedRecords };
+
+    return isDefined(existingFilter)
+      ? { and: [existingFilter, accessFilter] }
+      : accessFilter;
+  }
+
+  public async getVisibleCalendarEventsById({
+    eventIds,
+    workspaceId,
+    userId,
+    workspaceMemberId,
+  }: {
+    eventIds: string[];
+    workspaceId: string;
+    userId: string;
+    workspaceMemberId: string;
+  }): Promise<
+    Map<
+      string,
+      Pick<CalendarEventWorkspaceEntity, 'id' | 'title' | 'description'>
+    >
+  > {
+    if (eventIds.length === 0) {
+      return new Map();
+    }
+
+    const events = await this.workspaceOrmManager.executeInWorkspaceContext(
+      async () => {
+        const calendarEventRepository =
+          this.workspaceOrmManager.getRepository<CalendarEventWorkspaceEntity>(
+            'calendarEvent',
+          );
+
+        return calendarEventRepository.find({
+          where: { id: In([...new Set(eventIds)]) },
+          select: ['id', 'title', 'description', 'ownerId'],
+        });
+      },
+      buildSystemAuthContext(workspaceId),
+      { lite: true },
+    );
+
+    const visibleEvents = await this.applyCalendarEventsVisibilityRestrictions(
+      events,
+      workspaceId,
+      userId,
+      workspaceMemberId,
+    );
+
+    return new Map(
+      visibleEvents.map((event) => [
+        event.id,
+        {
+          id: event.id,
+          title: event.title,
+          description: event.description,
+        },
+      ]),
+    );
+  }
+
+  public async canUserWriteCalendarEvent({
+    eventId,
+    workspaceId,
+    userWorkspaceId,
+    workspaceMemberId,
+  }: {
+    eventId: string;
+    workspaceId: string;
+    userWorkspaceId: string;
+    workspaceMemberId: string;
+  }): Promise<boolean> {
+    const allowedChannelIds = await this.getWritableCalendarChannelIds({
+      workspaceId,
+      userWorkspaceId,
+    });
+
+    return this.workspaceOrmManager.executeInWorkspaceContext(
+      async () => {
+        const calendarEventRepository =
+          this.workspaceOrmManager.getRepository<CalendarEventWorkspaceEntity>(
+            'calendarEvent',
+          );
+        const calendarEvent = await calendarEventRepository.findOne({
+          where: { id: eventId },
+          select: ['id', 'ownerId'],
+        });
+
+        if (!calendarEvent) {
+          return false;
+        }
+
+        if (calendarEvent.ownerId === workspaceMemberId) {
+          return true;
+        }
+
+        if (allowedChannelIds.length === 0) {
+          return false;
+        }
+
+        const associationRepository =
+          this.workspaceOrmManager.getRepository<CalendarChannelEventAssociationWorkspaceEntity>(
+            'calendarChannelEventAssociation',
+          );
+        const associations = await associationRepository.find({
+          where: { calendarEventId: eventId },
+          select: ['calendarChannelId'],
+        });
+
+        return associations.some(({ calendarChannelId }) =>
+          allowedChannelIds.includes(calendarChannelId),
+        );
+      },
+      buildSystemAuthContext(workspaceId),
+      { lite: true },
+    );
+  }
+
+  private async getWritableCalendarChannelIds({
+    workspaceId,
+    userWorkspaceId,
+  }: {
+    workspaceId: string;
+    userWorkspaceId: string;
+  }): Promise<string[]> {
+    const connectedAccounts = await this.connectedAccountRepository.find({
+      where: { workspaceId, userWorkspaceId },
+      relations: { calendarChannels: true },
+      select: {
+        id: true,
+        calendarChannels: { id: true },
+      },
+    });
+
+    const writableChannelIds = new Set<string>();
+
+    for (const connectedAccount of connectedAccounts) {
+      for (const calendarChannel of connectedAccount.calendarChannels ?? []) {
+        writableChannelIds.add(calendarChannel.id);
+      }
+    }
+
+    return [...writableChannelIds];
   }
 }

@@ -136,7 +136,7 @@ describe('WorkspaceMemberTemporaryPasswordProvisioningForm', () => {
     fireEvent.change(screen.getByLabelText('Role'), {
       target: { value: 'role-id' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /Add member/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send invitation' }));
 
     await waitFor(() =>
       expect(provisionMember).toHaveBeenCalledWith({
@@ -148,7 +148,7 @@ describe('WorkspaceMemberTemporaryPasswordProvisioningForm', () => {
     );
     expect(enqueueSuccessSnackBar).toHaveBeenCalledWith({
       message:
-        'Member access is ready. If this was a new account, sign-in instructions were sent by email.',
+        'Workspace access is ready. Invitation instructions are sent only when a new account is created.',
     });
     expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
     expect(JSON.stringify(provisionMember.mock.calls)).not.toMatch(
@@ -178,7 +178,7 @@ describe('WorkspaceMemberTemporaryPasswordProvisioningForm', () => {
     fireEvent.change(screen.getByLabelText('Email'), {
       target: { value: 'jane@example.com' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /Add member/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send invitation' }));
 
     await waitFor(() =>
       expect(provisionMember).toHaveBeenCalledWith({
@@ -187,6 +187,37 @@ describe('WorkspaceMemberTemporaryPasswordProvisioningForm', () => {
         lastName: 'Doe',
       }),
     );
+  });
+
+  it('confirms when a deleted member was restored and invited', async () => {
+    provisionMember.mockResolvedValue({
+      data: {
+        provisionWorkspaceMember: {
+          status: ProvisionWorkspaceMemberStatus.RESTORED_AND_INVITED,
+        },
+      },
+    });
+
+    render(<WorkspaceMemberTemporaryPasswordProvisioningForm roles={roles} />, {
+      wrapper,
+    });
+
+    fireEvent.change(screen.getByLabelText('First name'), {
+      target: { value: 'Jane' },
+    });
+    fireEvent.change(screen.getByLabelText('Last name'), {
+      target: { value: 'Doe' },
+    });
+    fireEvent.change(screen.getByLabelText('Email'), {
+      target: { value: 'jane@example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send invitation' }));
+
+    await waitFor(() => {
+      expect(enqueueSuccessSnackBar).toHaveBeenCalledWith({
+        message: 'Member restored and invitation sent.',
+      });
+    });
   });
 
   it.each([
@@ -219,7 +250,7 @@ describe('WorkspaceMemberTemporaryPasswordProvisioningForm', () => {
     fireEvent.change(screen.getByLabelText('Email'), {
       target: { value: 'jane@example.com' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /Add member/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send invitation' }));
 
     await waitFor(() =>
       expect(enqueueErrorSnackBar).toHaveBeenCalledWith({ message }),

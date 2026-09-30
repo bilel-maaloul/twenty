@@ -1,18 +1,15 @@
 import { SKELETON_LOADER_HEIGHT_SIZES } from '@/activities/components/SkeletonLoader';
 import { Logo } from '@/auth/components/Logo';
 import { Title } from '@/auth/components/Title';
+import { PasswordRequirements } from '@/auth/components/PasswordRequirements';
 import { useAuth } from '@/auth/hooks/useAuth';
-import { useIsLogged } from '@/auth/hooks/useIsLogged';
 import { StyledOnboardingContentContainer } from '@/auth/components/StyledOnboardingContentContainer';
-import { currentUserState } from '@/auth/states/currentUserState';
 import { workspacePublicDataState } from '@/auth/states/workspacePublicDataState';
+import { UPDATE_PASSWORD_VIA_RESET_TOKEN } from '@/auth/graphql/mutations/updatePasswordViaResetToken';
 import { PASSWORD_REGEX } from '@/auth/utils/passwordRegex';
 import { CaptchaCheckbox } from '@/captcha/components/CaptchaCheckbox';
 import { useReadCaptchaToken } from '@/captcha/hooks/useReadCaptchaToken';
-import { captchaState } from '@/client-config/states/captchaState';
 import { useCaptcha } from '@/client-config/hooks/useCaptcha';
-import { useIsCurrentLocationOnAWorkspace } from '@/domain-manager/hooks/useIsCurrentLocationOnAWorkspace';
-import { useRedirect } from '@/domain-manager/hooks/useRedirect';
 import { useSnackBar } from '@/ui/feedback/snack-bar-manager/hooks/useSnackBar';
 import { TextInput } from '@/ui/input/components/TextInput';
 import { ModalContent } from 'twenty-ui/surfaces';
@@ -29,29 +26,43 @@ import { Controller, useForm } from 'react-hook-form';
 import Skeleton, { SkeletonTheme } from 'react-loading-skeleton';
 import { useParams } from 'react-router-dom';
 import { useAtomStateValue } from '@/ui/utilities/state/jotai/hooks/useAtomStateValue';
-import { useSetAtomState } from '@/ui/utilities/state/jotai/hooks/useSetAtomState';
 import { AppPath } from 'twenty-shared/types';
 import { MainButton } from 'twenty-ui/input';
-import { CaptchaDriverType } from '~/generated-metadata/graphql';
 import { ThemeContext, themeCssVariables } from 'twenty-ui/theme-constants';
 import { AnimatedEaseIn } from 'twenty-ui/layout';
 import { z } from 'zod';
 import { useMutation, useQuery } from '@apollo/client/react';
 import {
-  UpdatePasswordViaResetTokenDocument,
+  type UpdatePasswordViaResetTokenMutation,
+  type UpdatePasswordViaResetTokenMutationVariables,
   ValidatePasswordResetTokenDocument,
 } from '~/generated-metadata/graphql';
 import { useNavigateApp } from '~/hooks/useNavigateApp';
 
-const passwordLengthMessage = msg`Password must be between 8 and 50 characters`;
+type UpdatePasswordViaResetTokenVariables =
+  UpdatePasswordViaResetTokenMutationVariables & {
+    captchaToken?: string;
+  };
+
+const passwordPolicyMessage = msg`Password must be 8 to 50 characters and include an uppercase letter and a number`;
+const passwordConfirmationMessage = msg`Please confirm your password`;
+const passwordMismatchMessage = msg`Passwords do not match`;
 
 const validationSchema = z
   .object({
     passwordResetToken: z.string(),
     newPassword: z
       .string()
-      .regex(PASSWORD_REGEX, i18n._(passwordLengthMessage)),
+      .regex(PASSWORD_REGEX, i18n._(passwordPolicyMessage)),
+    confirmPassword: z.string().min(1, i18n._(passwordConfirmationMessage)),
   })
+  .refine(
+    ({ newPassword, confirmPassword }) => newPassword === confirmPassword,
+    {
+      path: ['confirmPassword'],
+      message: i18n._(passwordMismatchMessage),
+    },
+  )
   .required();
 
 type Form = z.infer<typeof validationSchema>;
@@ -89,28 +100,25 @@ export const PasswordReset = () => {
   const { enqueueErrorSnackBar, enqueueSuccessSnackBar } = useSnackBar();
 
   const workspacePublicData = useAtomStateValue(workspacePublicDataState);
-  const setCurrentUser = useSetAtomState(currentUserState);
 
   const navigate = useNavigateApp();
-  const { redirect } = useRedirect();
 
   const [email, setEmail] = useState('');
   const [isTokenValid, setIsTokenValid] = useState(false);
   const [isTargetUserPasswordSet, setIsTargetUserPasswordSet] = useState(false);
   const [isPasswordUpdated, setIsPasswordUpdated] = useState(false);
-  const [isSigningIn, setIsSigningIn] = useState(false);
   const passwordResetToken = useParams().passwordResetToken;
 
-  const isLogged = useIsLogged();
-
-  const { control, getValues, handleSubmit } = useForm<Form>({
+  const { control, handleSubmit, watch } = useForm<Form>({
     mode: 'onChange',
     defaultValues: {
       passwordResetToken: passwordResetToken ?? '',
       newPassword: '',
+      confirmPassword: '',
     },
     resolver: zodResolver(validationSchema),
   });
+  const newPassword = watch('newPassword');
 
   const { data: tokenValidationData, error: tokenValidationError } = useQuery(
     ValidatePasswordResetTokenDocument,
@@ -144,24 +152,29 @@ export const PasswordReset = () => {
     }
   }, [tokenValidationData]);
 
-  const [updatePasswordViaToken, { loading: isUpdatingPassword }] = useMutation(
-    UpdatePasswordViaResetTokenDocument,
-  );
+  const [updatePasswordViaToken, { loading: isUpdatingPassword }] = useMutation<
+    UpdatePasswordViaResetTokenMutation,
+    UpdatePasswordViaResetTokenVariables
+  >(UPDATE_PASSWORD_VIA_RESET_TOKEN);
 
-  const { signInWithCredentialsInWorkspace, signInWithCredentials } = useAuth();
-  const { isOnAWorkspace } = useIsCurrentLocationOnAWorkspace();
+  const { clearSession } = useAuth();
   const { readCaptchaToken } = useReadCaptchaToken();
   const { isCaptchaReady } = useCaptcha();
-  const captcha = useAtomStateValue(captchaState);
-  const isGoogleRecaptchaV2Checkbox =
-    captcha?.provider === CaptchaDriverType.GOOGLE_RECAPTCHA_V_2_CHECKBOX;
 
   const onSubmit = async (formData: Form) => {
     try {
+      if (!isCaptchaReady) {
+        enqueueErrorSnackBar({
+          message: t`Complete the CAPTCHA check before continuing.`,
+        });
+        return;
+      }
+
       const { data } = await updatePasswordViaToken({
         variables: {
           token: formData.passwordResetToken,
           newPassword: formData.newPassword,
+          captchaToken: readCaptchaToken(),
         },
       });
 
@@ -172,53 +185,13 @@ export const PasswordReset = () => {
         return;
       }
 
-      const successMessage =
-        isTargetUserPasswordSet === false
-          ? t`Password has been set`
-          : t`Password has been updated`;
-
-      setCurrentUser((currentUser) =>
-        currentUser ? { ...currentUser, hasPassword: true } : currentUser,
-      );
-
-      if (isLogged) {
-        enqueueSuccessSnackBar({
-          message: successMessage,
-        });
-        navigate(AppPath.Index);
-        return;
-      }
-
-      if (isGoogleRecaptchaV2Checkbox) {
-        setIsPasswordUpdated(true);
-        enqueueSuccessSnackBar({
-          message: t`Password updated. Sign in with your new password.`,
-        });
-        return;
-      }
-
-      if (!isCaptchaReady) {
-        enqueueErrorSnackBar({
-          message: t`Captcha (anti-bot check) is still loading, try again`,
-        });
-        return;
-      }
-
-      const token = readCaptchaToken();
-
-      const outcome = isOnAWorkspace
-        ? await signInWithCredentialsInWorkspace(
-            email || '',
-            formData.newPassword,
-            token,
-          )
-        : await signInWithCredentials(email || '', formData.newPassword, token);
-
-      if (outcome === 'first-password-required') {
-        return;
-      }
-
-      redirect(AppPath.Index);
+      setIsPasswordUpdated(true);
+      enqueueSuccessSnackBar({
+        message:
+          isTargetUserPasswordSet === false
+            ? t`Password has been set`
+            : t`Password has been updated`,
+      });
     } catch (err) {
       enqueueErrorSnackBar({
         apolloError: CombinedGraphQLErrors.is(err) ? err : undefined,
@@ -226,36 +199,11 @@ export const PasswordReset = () => {
     }
   };
 
-  const signInAfterPasswordUpdate = async () => {
-    if (!isCaptchaReady) {
-      enqueueErrorSnackBar({
-        message: t`Captcha (anti-bot check) is still loading, try again`,
-      });
-      return;
-    }
-
-    setIsSigningIn(true);
-    try {
-      const password = getValues('newPassword');
-      const captchaToken = readCaptchaToken();
-      const outcome = isOnAWorkspace
-        ? await signInWithCredentialsInWorkspace(email, password, captchaToken)
-        : await signInWithCredentials(email, password, captchaToken);
-
-      if (outcome !== 'first-password-required') {
-        redirect(AppPath.Index);
-      }
-    } catch (error) {
-      enqueueErrorSnackBar({
-        apolloError: CombinedGraphQLErrors.is(error) ? error : undefined,
-      });
-    } finally {
-      setIsSigningIn(false);
-    }
-  };
-
-  const passwordActionLabel =
-    isTargetUserPasswordSet === true ? t`Change Password` : t`Set Password`;
+  const passwordActionLabel = isPasswordUpdated
+    ? t`Password updated`
+    : isTargetUserPasswordSet === true
+      ? t`Change Password`
+      : t`Set Password`;
 
   return (
     isTokenValid && (
@@ -282,6 +230,19 @@ export const PasswordReset = () => {
                   }}
                 />
               </SkeletonTheme>
+            ) : isPasswordUpdated ? (
+              <StyledForm>
+                <p>{t`Your password has been updated. Sign in with your new password.`}</p>
+                <StyledMainButtonContainer>
+                  <MainButton
+                    variant="primary"
+                    title={t`Sign in`}
+                    type="button"
+                    fullWidth
+                    onClick={clearSession}
+                  />
+                </StyledMainButtonContainer>
+              </StyledForm>
             ) : (
               <StyledForm onSubmit={handleSubmit(onSubmit)}>
                 <StyledFullWidthContainer>
@@ -305,66 +266,72 @@ export const PasswordReset = () => {
                     </StyledInputContainer>
                   </motion.div>
                 </StyledFullWidthContainer>
-                {!isPasswordUpdated && (
-                  <StyledFullWidthContainer>
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      transition={{
-                        type: 'spring',
-                        stiffness: 800,
-                        damping: 35,
-                      }}
-                    >
-                      <Controller
-                        name="newPassword"
-                        control={control}
-                        render={({
-                          field: { onChange, onBlur, value },
-                          fieldState: { error },
-                        }) => (
-                          <StyledInputContainer>
-                            <TextInput
-                              autoFocus
-                              value={value}
-                              type="password"
-                              placeholder={t`New Password`}
-                              onBlur={onBlur}
-                              onChange={onChange}
-                              error={error?.message}
-                              fullWidth
-                            />
-                          </StyledInputContainer>
-                        )}
-                      />
-                    </motion.div>
-                  </StyledFullWidthContainer>
-                )}
+                <StyledFullWidthContainer>
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    transition={{
+                      type: 'spring',
+                      stiffness: 800,
+                      damping: 35,
+                    }}
+                  >
+                    <Controller
+                      name="newPassword"
+                      control={control}
+                      render={({
+                        field: { onChange, onBlur, value },
+                        fieldState: { error },
+                      }) => (
+                        <StyledInputContainer>
+                          <TextInput
+                            autoFocus
+                            value={value}
+                            type="password"
+                            placeholder={t`New Password`}
+                            onBlur={onBlur}
+                            onChange={onChange}
+                            error={error?.message}
+                            fullWidth
+                          />
+                          <PasswordRequirements password={newPassword} />
+                        </StyledInputContainer>
+                      )}
+                    />
+                    <Controller
+                      name="confirmPassword"
+                      control={control}
+                      render={({
+                        field: { onChange, onBlur, value },
+                        fieldState: { error },
+                      }) => (
+                        <StyledInputContainer>
+                          <TextInput
+                            value={value}
+                            type="password"
+                            placeholder={t`Confirm New Password`}
+                            onBlur={onBlur}
+                            onChange={onChange}
+                            error={error?.message}
+                            fullWidth
+                          />
+                        </StyledInputContainer>
+                      )}
+                    />
+                  </motion.div>
+                </StyledFullWidthContainer>
 
                 <StyledMainButtonContainer>
-                  {isPasswordUpdated ? (
-                    <>
-                      <CaptchaCheckbox
-                        challengeKey={`password-reset-sign-in:${isOnAWorkspace ? (workspacePublicData?.id ?? window.location.origin) : 'global'}:${email}`}
-                      />
-                      <MainButton
-                        variant="primary"
-                        title={t`Sign in`}
-                        type="button"
-                        fullWidth
-                        disabled={isSigningIn || !isCaptchaReady}
-                        onClick={signInAfterPasswordUpdate}
-                      />
-                    </>
-                  ) : (
-                    <MainButton
-                      variant="secondary"
-                      title={passwordActionLabel}
-                      type="submit"
-                      fullWidth
-                      disabled={isUpdatingPassword}
-                    />
-                  )}
+                  <CaptchaCheckbox
+                    challengeKey={`password-reset:${workspacePublicData?.id ?? window.location.origin}:${email}`}
+                  />
+                  <MainButton
+                    variant="secondary"
+                    title={passwordActionLabel}
+                    type="submit"
+                    fullWidth
+                    disabled={isUpdatingPassword || !isCaptchaReady}
+                  />
                 </StyledMainButtonContainer>
               </StyledForm>
             )}

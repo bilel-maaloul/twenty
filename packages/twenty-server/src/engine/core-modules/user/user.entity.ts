@@ -74,6 +74,9 @@ export class UserEntity {
   @Column({ type: 'timestamptz', nullable: true })
   temporaryPasswordExpiresAt: Date | null;
 
+  @Column({ type: 'timestamptz', nullable: true })
+  permanentPasswordExpiresAt: Date | null;
+
   @Column({ type: 'integer', default: 0 })
   credentialEpoch: number;
 

@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import * as crypto from 'node:crypto';
 
 import {
   AppTokenEntity,
@@ -15,16 +15,36 @@ import {
 import { authGraphqlApiExceptionHandler } from 'src/engine/core-modules/auth/utils/auth-graphql-api-exception-handler.util';
 import { ErrorCode } from 'src/engine/core-modules/graphql/utils/graphql-errors.util';
 import { AuthService } from 'src/engine/core-modules/auth/services/auth.service';
+import { UserWorkspaceEntity } from 'src/engine/core-modules/user-workspace/user-workspace.entity';
 import {
   FirstPasswordCreationService,
   FirstPasswordInputRejectedException,
 } from 'src/engine/core-modules/auth/services/first-password-creation.service';
 import { UserEntity } from 'src/engine/core-modules/user/user.entity';
 
+jest.mock('node:crypto', () => {
+  const actualCrypto =
+    jest.requireActual<typeof import('node:crypto')>('node:crypto');
+
+  return {
+    ...actualCrypto,
+    randomInt: jest.fn(actualCrypto.randomInt),
+  };
+});
+
+jest.setTimeout(30_000);
+
+let dummyPasscodeHash: string;
+
+beforeAll(async () => {
+  dummyPasscodeHash = await hashPassword('test-only-dummy-passcode');
+});
+
 type StoredToken = Pick<
   AppTokenEntity,
   | 'id'
   | 'userId'
+  | 'workspaceId'
   | 'type'
   | 'value'
   | 'expiresAt'
@@ -34,28 +54,48 @@ type StoredToken = Pick<
 >;
 
 describe('FirstPasswordCreationService', () => {
-  const temporaryPassword = 'temporary-password-123';
-  const permanentPassword = 'permanent-password-123';
+  const temporaryPassword = 'Temporary-password-123';
+  const permanentPassword = 'Permanent-password-123';
 
   const createScenario = async () => {
     let user: {
       id: string;
       email: string;
-      passwordHash: string;
+      firstName: string;
+      lastName: string;
+      passwordHash: string | null;
+      isEmailVerified: boolean;
       disabled: boolean;
       mustChangePassword: boolean;
       temporaryPasswordExpiresAt: Date | null;
+      permanentPasswordExpiresAt: Date | null;
       credentialEpoch: number;
+      deletedAt: Date | null;
+      canAccessFullAdminPanel: boolean;
+      canImpersonate: boolean;
     } = {
       id: 'user-id',
       email: 'first@example.com',
+      firstName: 'Old',
+      lastName: 'Name',
+      isEmailVerified: false,
       passwordHash: await hashPassword(temporaryPassword),
       disabled: false,
       mustChangePassword: true,
       temporaryPasswordExpiresAt: new Date(Date.now() + 60_000),
+      permanentPasswordExpiresAt: null,
       credentialEpoch: 0,
+      deletedAt: null,
+      canAccessFullAdminPanel: false,
+      canImpersonate: false,
+    };
+    let userWorkspace = {
+      userId: 'user-id',
+      workspaceId: 'workspace-id',
+      suspendedAt: null as Date | null,
     };
     let tokens: StoredToken[] = [];
+    let activeMemberships: Array<{ userId: string; workspaceId: string }> = [];
     let nextId = 0;
     let transactionQueue = Promise.resolve();
     const invalidation = jest.fn().mockResolvedValue(undefined);
@@ -64,17 +104,13 @@ describe('FirstPasswordCreationService', () => {
       findOneBy: jest.fn(async () => ({ ...user })),
       update: jest.fn(
         async (
-          where: { credentialEpoch: number },
-          values: {
-            passwordHash: string;
-            mustChangePassword: boolean;
-            temporaryPasswordExpiresAt: null;
-          },
+          where: Record<string, unknown>,
+          values: Record<string, unknown>,
         ) => {
           if (
-            user.credentialEpoch !== where.credentialEpoch ||
-            !user.mustChangePassword ||
-            user.disabled
+            Object.entries(where).some(
+              ([key, value]) => user[key as keyof typeof user] !== value,
+            )
           ) {
             return { affected: 0 };
           }
@@ -82,25 +118,45 @@ describe('FirstPasswordCreationService', () => {
           user = {
             ...user,
             ...values,
-            credentialEpoch: user.credentialEpoch + 1,
-          };
+            ...(typeof values.credentialEpoch === 'function' && {
+              credentialEpoch: user.credentialEpoch + 1,
+            }),
+          } as typeof user;
 
           return { affected: 1 };
         },
       ),
+      restore: jest.fn(async () => {
+        user = { ...user, deletedAt: null };
+
+        return { affected: 1 };
+      }),
     };
     const appTokenRepository = {
       findOne: jest.fn(
         async ({
           where,
         }: {
-          where: { id?: string; value?: string; type?: AppTokenType };
+          where: {
+            id?: string;
+            value?: string;
+            type?: AppTokenType;
+            userId?: string;
+            workspaceId?: string;
+            revokedAt?: unknown;
+            deletedAt?: unknown;
+          };
         }) =>
           tokens.find(
             (token) =>
               (where.id === undefined || token.id === where.id) &&
               (where.value === undefined || token.value === where.value) &&
-              (where.type === undefined || token.type === where.type),
+              (where.type === undefined || token.type === where.type) &&
+              (where.userId === undefined || token.userId === where.userId) &&
+              (where.workspaceId === undefined ||
+                token.workspaceId === where.workspaceId) &&
+              (!where.revokedAt || !token.revokedAt) &&
+              (!where.deletedAt || !token.deletedAt),
           ) ?? null,
       ),
       findOneBy: jest.fn(
@@ -109,12 +165,24 @@ describe('FirstPasswordCreationService', () => {
       ),
       update: jest.fn(
         async (
-          { userId, type }: { userId: string; type: AppTokenType },
-          values: { revokedAt: Date },
+          where: {
+            userId?: string;
+            id?: string;
+            type?: AppTokenType;
+            credentialEpoch?: number;
+          },
+          values: { revokedAt: Date; expiresAt?: Date },
         ) => {
           tokens = tokens.map((token) =>
-            token.userId === userId && token.type === type && !token.revokedAt
-              ? { ...token, revokedAt: values.revokedAt }
+            (where.userId === undefined || token.userId === where.userId) &&
+            (where.id === undefined || token.id === where.id) &&
+            (where.type === undefined || token.type === where.type) &&
+            !token.revokedAt
+              ? {
+                  ...token,
+                  revokedAt: values.revokedAt,
+                  ...(values.expiresAt && { expiresAt: values.expiresAt }),
+                }
               : token,
           );
         },
@@ -130,12 +198,32 @@ describe('FirstPasswordCreationService', () => {
         },
       ),
     };
-    const manager = {
-      getRepository: jest.fn(
-        (entity: typeof UserEntity | typeof AppTokenEntity) =>
-          entity === UserEntity ? userRepository : appTokenRepository,
+    const userWorkspaceRepository = {
+      find: jest.fn(async () =>
+        activeMemberships.map((membership) => ({ ...membership })),
+      ),
+      findOne: jest.fn(async ({ where }: { where: { userId: string } }) =>
+        userWorkspace.userId === where.userId && !userWorkspace.suspendedAt
+          ? { ...userWorkspace }
+          : null,
       ),
     };
+    const manager = {
+      getRepository: jest.fn(
+        (
+          entity:
+            | typeof UserEntity
+            | typeof AppTokenEntity
+            | typeof UserWorkspaceEntity,
+        ) =>
+          entity === UserEntity
+            ? userRepository
+            : entity === AppTokenEntity
+              ? appTokenRepository
+              : userWorkspaceRepository,
+      ),
+    };
+    Object.assign(userRepository, { manager });
     const transaction = jest.fn(
       async (
         callback: (transactionManager: {
@@ -166,14 +254,21 @@ describe('FirstPasswordCreationService', () => {
     const service = Object.assign(
       Object.create(FirstPasswordCreationService.prototype),
       {
+        dummyPasscodeHash,
         appTokenRepository: { ...appTokenRepository, manager: { transaction } },
         userRepository,
+        throttlerService: {
+          tokenBucketThrottleOrThrow: jest.fn().mockResolvedValue(undefined),
+        },
         twentyConfigService: {
           get: () => '5m',
         },
         authService: {
           invalidateCredentialsAfterPasswordChange: invalidation,
         } as Pick<AuthService, 'invalidateCredentialsAfterPasswordChange'>,
+        coreEntityCacheService: {
+          invalidate: jest.fn().mockResolvedValue(undefined),
+        },
         logger: { error: jest.fn() },
       },
     ) as FirstPasswordCreationService;
@@ -188,11 +283,25 @@ describe('FirstPasswordCreationService', () => {
       setUser: (changes: Partial<typeof user>) => {
         user = { ...user, ...changes };
       },
+      setTokens: (newTokens: StoredToken[]) => {
+        tokens = newTokens.map((token) => ({ ...token }));
+      },
+      setActiveMemberships: (
+        memberships: Array<{ userId: string; workspaceId: string }>,
+      ) => {
+        activeMemberships = memberships.map((membership) => ({
+          ...membership,
+        }));
+      },
       getTokens: () => tokens,
       transaction,
       manager,
       userRepository,
       appTokenRepository,
+      userWorkspaceRepository,
+      setUserWorkspace: (changes: Partial<typeof userWorkspace>) => {
+        userWorkspace = { ...userWorkspace, ...changes };
+      },
       invalidation,
     };
   };
@@ -227,7 +336,7 @@ describe('FirstPasswordCreationService', () => {
         permanentPassword,
         permanentPassword,
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ userId: 'user-id', credentialEpoch: 1 });
   });
 
   it('changes the password and epoch once, consumes the capability, and blocks replay', async () => {
@@ -248,8 +357,12 @@ describe('FirstPasswordCreationService', () => {
         credentialEpoch: 1,
         mustChangePassword: false,
         temporaryPasswordExpiresAt: null,
+        permanentPasswordExpiresAt: expect.any(Date),
       }),
     );
+    expect(
+      scenario.getUser().permanentPasswordExpiresAt!.getTime(),
+    ).toBeGreaterThan(Date.now() + 89 * 24 * 60 * 60 * 1000);
     expect(scenario.getTokens()[0].revokedAt).toBeInstanceOf(Date);
     expect(scenario.invalidation).toHaveBeenCalledWith('user-id');
     await expect(
@@ -352,6 +465,8 @@ describe('FirstPasswordCreationService', () => {
   it.each([
     ['password mismatch', permanentPassword, 'different-permanent-password'],
     ['password policy failure', 'short', 'short'],
+    ['missing uppercase letter', 'lowercase123', 'lowercase123'],
+    ['missing number', 'UppercaseOnly', 'UppercaseOnly'],
     ['temporary-password reuse', temporaryPassword, temporaryPassword],
   ])(
     'retains a valid capability after %s and permits one subsequent success',
@@ -377,7 +492,7 @@ describe('FirstPasswordCreationService', () => {
           permanentPassword,
           permanentPassword,
         ),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ userId: 'user-id', credentialEpoch: 1 });
       expect(scenario.getUser().credentialEpoch).toBe(1);
       await expect(
         scenario.service.createPermanentPassword(
@@ -395,7 +510,7 @@ describe('FirstPasswordCreationService', () => {
 
     await expect(
       invalidCapabilityScenario.service.createPermanentPassword(
-        randomBytes(32).toString('base64url'),
+        crypto.randomBytes(32).toString('base64url'),
         permanentPassword,
         'mismatch',
       ),
@@ -500,7 +615,7 @@ describe('FirstPasswordCreationService', () => {
 
     await expect(
       scenario.service.createPermanentPassword(
-        randomBytes(32).toString('base64url'),
+        crypto.randomBytes(32).toString('base64url'),
         permanentPassword,
         permanentPassword,
       ),
@@ -530,6 +645,8 @@ describe('FirstPasswordCreationService', () => {
     for (const [newPassword, confirmation] of [
       [permanentPassword, 'different-password'],
       ['short', 'short'],
+      ['lowercase123', 'lowercase123'],
+      ['UppercaseOnly', 'UppercaseOnly'],
       [temporaryPassword, temporaryPassword],
     ]) {
       await expect(
@@ -596,7 +713,7 @@ describe('FirstPasswordCreationService', () => {
         permanentPassword,
         permanentPassword,
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ userId: 'user-id', credentialEpoch: 1 });
   });
 
   it('reconciles a lost transaction commit acknowledgement before reporting success', async () => {
@@ -614,7 +731,7 @@ describe('FirstPasswordCreationService', () => {
         permanentPassword,
         permanentPassword,
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ userId: 'user-id', credentialEpoch: 1 });
     expect(scenario.getUser().credentialEpoch).toBe(1);
     expect(scenario.invalidation).toHaveBeenCalledWith('user-id');
   });
@@ -682,5 +799,398 @@ describe('FirstPasswordCreationService', () => {
         ),
       ),
     ).toMatchObject({ code: ErrorCode.INTERNAL_SERVER_ERROR });
+  });
+
+  describe('deleted identity restoration', () => {
+    it('reuses the identity, clears old credentials, invalidates tokens and completes invitation onboarding', async () => {
+      const scenario = await createScenario();
+      scenario.setUser({
+        deletedAt: new Date(),
+        passwordHash: await hashPassword('Old-permanent-password-123'),
+        mustChangePassword: false,
+        temporaryPasswordExpiresAt: new Date(Date.now() + 60_000),
+        permanentPasswordExpiresAt: new Date(Date.now() + 60_000),
+        credentialEpoch: 4,
+        isEmailVerified: true,
+      });
+      scenario.setTokens([
+        {
+          id: 'old-refresh-token',
+          userId: 'user-id',
+          workspaceId: 'workspace-id',
+          type: AppTokenType.RefreshToken,
+          value: 'old-refresh-token-hash',
+          expiresAt: new Date(Date.now() + 60_000),
+          revokedAt: null,
+          deletedAt: null,
+          context: null,
+        },
+        {
+          id: 'old-invitation-token',
+          userId: 'user-id',
+          workspaceId: 'workspace-id',
+          type: AppTokenType.InvitationToken,
+          value: 'old-invitation-token-hash',
+          expiresAt: new Date(Date.now() + 60_000),
+          revokedAt: null,
+          deletedAt: null,
+          context: null,
+        },
+      ]);
+
+      const restoration =
+        await scenario.service.restoreDeletedUserForInvitation({
+          userId: 'user-id',
+          firstName: 'Restored',
+          lastName: 'Member',
+        });
+
+      expect(restoration.status).toBe('restored');
+      expect(restoration).toMatchObject({
+        user: {
+          id: 'user-id',
+          firstName: 'Restored',
+          lastName: 'Member',
+          passwordHash: null,
+          mustChangePassword: true,
+          temporaryPasswordExpiresAt: null,
+          permanentPasswordExpiresAt: null,
+          credentialEpoch: 5,
+          deletedAt: null,
+          isEmailVerified: true,
+        },
+      });
+      expect(scenario.userRepository.restore).toHaveBeenCalledWith({
+        id: 'user-id',
+      });
+      expect(scenario.getTokens()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'old-refresh-token',
+            revokedAt: expect.any(Date),
+            expiresAt: expect.any(Date),
+          }),
+          expect.objectContaining({
+            id: 'old-invitation-token',
+            revokedAt: expect.any(Date),
+            expiresAt: expect.any(Date),
+          }),
+        ]),
+      );
+      expect(scenario.invalidation).toHaveBeenCalledWith('user-id');
+
+      scenario.setActiveMemberships([
+        { userId: 'user-id', workspaceId: 'workspace-id' },
+      ]);
+      const invitation = await scenario.service.issueInvitationPasscode({
+        userId: 'user-id',
+        workspaceId: 'workspace-id',
+      });
+      const passcodeToken = scenario
+        .getTokens()
+        .find(
+          ({ type, revokedAt }) =>
+            type === AppTokenType.FirstPasswordInvitationPasscode && !revokedAt,
+        );
+
+      expect(invitation.passcode).toMatch(/^\d{6}$/);
+      expect(passcodeToken).toBeDefined();
+      expect(passcodeToken?.value).not.toBe(invitation.passcode);
+      expect(await compareHash(invitation.passcode, passcodeToken!.value)).toBe(
+        true,
+      );
+
+      const capability = await scenario.service.verifyInvitationPasscode({
+        email: 'first@example.com',
+        workspaceId: 'workspace-id',
+        passcode: invitation.passcode,
+        ipAddress: '203.0.113.44',
+      });
+
+      await expect(
+        scenario.service.createPermanentPassword(
+          capability.capability,
+          permanentPassword,
+          permanentPassword,
+        ),
+      ).resolves.toEqual({ userId: 'user-id', credentialEpoch: 6 });
+      expect(scenario.getUser()).toMatchObject({
+        passwordHash: expect.any(String),
+        mustChangePassword: false,
+        credentialEpoch: 6,
+      });
+      expect(scenario.invalidation).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not restore disabled or server-privileged identities', async () => {
+      for (const changes of [
+        { disabled: true },
+        { canAccessFullAdminPanel: true },
+        { canImpersonate: true },
+      ]) {
+        const scenario = await createScenario();
+        scenario.setUser({ deletedAt: new Date(), ...changes });
+
+        await expect(
+          scenario.service.restoreDeletedUserForInvitation({
+            userId: 'user-id',
+            firstName: 'Jane',
+            lastName: 'Doe',
+          }),
+        ).resolves.toEqual({ status: 'unavailable' });
+
+        expect(scenario.userRepository.restore).not.toHaveBeenCalled();
+        expect(scenario.invalidation).not.toHaveBeenCalled();
+      }
+    });
+
+    it('refuses restoration when the deleted identity still has active workspace memberships', async () => {
+      const scenario = await createScenario();
+      scenario.setUser({ deletedAt: new Date() });
+      scenario.setActiveMemberships([
+        { userId: 'user-id', workspaceId: 'unrelated-workspace-id' },
+      ]);
+
+      await expect(
+        scenario.service.restoreDeletedUserForInvitation({
+          userId: 'user-id',
+          firstName: 'Jane',
+          lastName: 'Doe',
+        }),
+      ).resolves.toEqual({ status: 'unavailable' });
+
+      expect(scenario.userRepository.restore).not.toHaveBeenCalled();
+      expect(scenario.invalidation).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('administrator invitation passcodes', () => {
+    const issueInvitation = async (
+      scenario: Awaited<ReturnType<typeof createScenario>>,
+    ) => {
+      scenario.setUser({
+        passwordHash: null,
+        mustChangePassword: true,
+        temporaryPasswordExpiresAt: null,
+        isEmailVerified: false,
+      });
+
+      return await scenario.service.issueInvitationPasscode({
+        userId: 'user-id',
+        workspaceId: 'workspace-id',
+      });
+    };
+
+    it('stores only a bcrypt hash scoped to the intended user, workspace, and credential epoch', async () => {
+      const scenario = await createScenario();
+      const invitation = await issueInvitation(scenario);
+      const [storedToken] = scenario.getTokens();
+
+      expect(invitation.passcode).toMatch(/^\d{6}$/);
+      expect(storedToken).toMatchObject({
+        userId: 'user-id',
+        workspaceId: 'workspace-id',
+        type: AppTokenType.FirstPasswordInvitationPasscode,
+      });
+      expect(storedToken.value).not.toBe(invitation.passcode);
+      expect(await compareHash(invitation.passcode, storedToken.value)).toBe(
+        true,
+      );
+      expect(storedToken.context).toEqual({
+        email: 'first@example.com',
+        credentialEpoch: 0,
+      });
+      expect(invitation.expiresAt.getTime()).toBeLessThanOrEqual(
+        Date.now() + 5 * 60 * 1000,
+      );
+    });
+
+    it('preserves leading zeroes in generated invitation passcodes', async () => {
+      jest.mocked(crypto.randomInt).mockReturnValueOnce(1234);
+
+      const scenario = await createScenario();
+      const invitation = await issueInvitation(scenario);
+
+      expect(invitation.passcode).toBe('001234');
+      expect(crypto.randomInt).toHaveBeenCalledWith(0, 1_000_000);
+
+      const restricted = await scenario.service.verifyInvitationPasscode({
+        email: 'first@example.com',
+        workspaceId: 'workspace-id',
+        passcode: '001234',
+        ipAddress: '203.0.113.20',
+      });
+
+      expect(restricted.capability).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    });
+
+    it('consumes the passcode once and returns only a restricted hash-backed capability', async () => {
+      const scenario = await createScenario();
+      const invitation = await issueInvitation(scenario);
+
+      const restricted = await scenario.service.verifyInvitationPasscode({
+        email: ' FIRST@example.com ',
+        workspaceId: 'workspace-id',
+        passcode: invitation.passcode,
+        ipAddress: '203.0.113.20',
+      });
+
+      expect(restricted.capability).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(scenario.getTokens()[0]).toMatchObject({
+        type: AppTokenType.FirstPasswordInvitationPasscode,
+        revokedAt: expect.any(Date),
+      });
+      const capabilityToken = scenario.getTokens()[1];
+      expect(capabilityToken).toMatchObject({
+        userId: 'user-id',
+        workspaceId: 'workspace-id',
+        type: AppTokenType.FirstPasswordCreation,
+        context: {
+          credentialEpoch: 0,
+          firstPasswordFlow: 'invitation-passcode',
+        },
+      });
+      expect(capabilityToken.value).not.toBe(restricted.capability);
+      expect(capabilityToken.value).toMatch(/^[a-f0-9]{64}$/);
+      expect(scenario.getUser()).toMatchObject({
+        passwordHash: null,
+        mustChangePassword: true,
+        isEmailVerified: true,
+      });
+      await expect(
+        scenario.service.hasValidCapability(restricted.capability),
+      ).resolves.toBe(true);
+      expect(JSON.stringify(scenario.getTokens())).not.toContain(
+        restricted.capability,
+      );
+
+      await expect(
+        scenario.service.verifyInvitationPasscode({
+          email: 'first@example.com',
+          workspaceId: 'workspace-id',
+          passcode: invitation.passcode,
+          ipAddress: '203.0.113.20',
+        }),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.FORBIDDEN_EXCEPTION });
+    });
+
+    it('rejects wrong, expired, and superseded passcodes generically', async () => {
+      const wrongScenario = await createScenario();
+      await issueInvitation(wrongScenario);
+      await expect(
+        wrongScenario.service.verifyInvitationPasscode({
+          email: 'first@example.com',
+          workspaceId: 'workspace-id',
+          passcode: '000000',
+          ipAddress: '203.0.113.20',
+        }),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.FORBIDDEN_EXCEPTION });
+
+      const expiredScenario = await createScenario();
+      const expiredInvitation = await issueInvitation(expiredScenario);
+      expiredScenario.getTokens()[0].expiresAt = new Date(Date.now() - 1);
+      await expect(
+        expiredScenario.service.verifyInvitationPasscode({
+          email: 'first@example.com',
+          workspaceId: 'workspace-id',
+          passcode: expiredInvitation.passcode,
+          ipAddress: '203.0.113.20',
+        }),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.FORBIDDEN_EXCEPTION });
+
+      const supersededScenario = await createScenario();
+      const oldInvitation = await issueInvitation(supersededScenario);
+      await supersededScenario.service.issueInvitationPasscode({
+        userId: 'user-id',
+        workspaceId: 'workspace-id',
+      });
+      await expect(
+        supersededScenario.service.verifyInvitationPasscode({
+          email: 'first@example.com',
+          workspaceId: 'workspace-id',
+          passcode: oldInvitation.passcode,
+          ipAddress: '203.0.113.20',
+        }),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.FORBIDDEN_EXCEPTION });
+    });
+
+    it.each([
+      ['five digits', (passcode: string) => passcode.slice(1)],
+      ['seven digits', (passcode: string) => `${passcode}0`],
+      [
+        'nonnumeric input',
+        (passcode: string) => `${passcode.slice(0, 2)}x${passcode.slice(3)}`,
+      ],
+    ])(
+      'rejects %s at the backend boundary',
+      async (_description, makeInvalidPasscode) => {
+        const scenario = await createScenario();
+        const invitation = await issueInvitation(scenario);
+
+        await expect(
+          scenario.service.verifyInvitationPasscode({
+            email: 'first@example.com',
+            workspaceId: 'workspace-id',
+            passcode: makeInvalidPasscode(invitation.passcode),
+            ipAddress: '203.0.113.20',
+          }),
+        ).rejects.toMatchObject({
+          code: AuthExceptionCode.FORBIDDEN_EXCEPTION,
+        });
+      },
+    );
+
+    it('fails closed when the invitation membership is suspended before password creation', async () => {
+      const scenario = await createScenario();
+      const invitation = await issueInvitation(scenario);
+      const restricted = await scenario.service.verifyInvitationPasscode({
+        email: 'first@example.com',
+        workspaceId: 'workspace-id',
+        passcode: invitation.passcode,
+        ipAddress: '203.0.113.20',
+      });
+
+      scenario.setUserWorkspace({ suspendedAt: new Date() });
+
+      await expect(
+        scenario.service.hasValidCapability(restricted.capability),
+      ).resolves.toBe(false);
+      await expect(
+        scenario.service.createPermanentPassword(
+          restricted.capability,
+          permanentPassword,
+          permanentPassword,
+        ),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.FORBIDDEN_EXCEPTION });
+    });
+
+    it('creates a normal permanent-password state from invitation capability and increments the epoch', async () => {
+      const scenario = await createScenario();
+      const invitation = await issueInvitation(scenario);
+      const restricted = await scenario.service.verifyInvitationPasscode({
+        email: 'first@example.com',
+        workspaceId: 'workspace-id',
+        passcode: invitation.passcode,
+        ipAddress: '203.0.113.20',
+      });
+
+      await expect(
+        scenario.service.createPermanentPassword(
+          restricted.capability,
+          permanentPassword,
+          permanentPassword,
+        ),
+      ).resolves.toEqual({ userId: 'user-id', credentialEpoch: 1 });
+      expect(scenario.getUser()).toMatchObject({
+        mustChangePassword: false,
+        temporaryPasswordExpiresAt: null,
+        credentialEpoch: 1,
+      });
+      expect(
+        await compareHash(permanentPassword, scenario.getUser().passwordHash!),
+      ).toBe(true);
+      expect(scenario.getTokens().every((token) => token.revokedAt)).toBe(true);
+      expect(scenario.invalidation).toHaveBeenCalledWith('user-id');
+    });
   });
 });

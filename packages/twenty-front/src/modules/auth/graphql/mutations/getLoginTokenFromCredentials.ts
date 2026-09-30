@@ -14,6 +14,9 @@ export const GET_LOGIN_TOKEN_FROM_CREDENTIALS = gql`
       origin: $origin
     ) {
       requiresFirstPasswordCreation
+      requiresPasswordReset
+      requiresEmailOtp
+      emailOtpChallengeId
       loginToken {
         ...AuthTokenFragment
       }

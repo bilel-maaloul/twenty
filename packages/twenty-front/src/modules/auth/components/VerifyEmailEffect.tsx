@@ -1,5 +1,10 @@
 import { verifyEmailRedirectPathState } from '@/app/states/verifyEmailRedirectPathState';
 import { useAuth } from '@/auth/hooks/useAuth';
+import { interactiveEmailOtpChallengeIdState } from '@/auth/states/interactiveEmailOtpChallengeIdState';
+import {
+  SignInUpStep,
+  signInUpStepState,
+} from '@/auth/states/signInUpStepState';
 import { useVerifyLogin } from '@/auth/hooks/useVerifyLogin';
 import { clientConfigApiStatusState } from '@/client-config/states/clientConfigApiStatusState';
 import { useIsCurrentLocationOnAWorkspace } from '@/domain-manager/hooks/useIsCurrentLocationOnAWorkspace';
@@ -34,6 +39,10 @@ export const VerifyEmailEffect = ({ onError }: VerifyEmailEffectProps) => {
   const setVerifyEmailRedirectPath = useSetAtomState(
     verifyEmailRedirectPathState,
   );
+  const setEmailOtpChallengeId = useSetAtomState(
+    interactiveEmailOtpChallengeIdState,
+  );
+  const setSignInUpStep = useSetAtomState(signInUpStepState);
 
   const email = searchParams.get('email');
   const emailVerificationToken = searchParams.get('emailVerificationToken');
@@ -77,12 +86,28 @@ export const VerifyEmailEffect = ({ onError }: VerifyEmailEffectProps) => {
           return navigate(AppPath.SignInUp);
         }
 
-        const { loginToken, workspaceUrls } = await verifyEmailAndGetLoginToken(
+        const verificationResult = await verifyEmailAndGetLoginToken(
           emailVerificationToken,
           email,
         );
 
         enqueueSuccessSnackBar(successSnackbarParams);
+
+        if (verificationResult.requiresEmailOtp) {
+          if (!verificationResult.emailOtpChallengeId) {
+            throw new Error('Missing email OTP challenge');
+          }
+
+          setEmailOtpChallengeId(verificationResult.emailOtpChallengeId);
+          setSignInUpStep(SignInUpStep.EmailOtpVerification);
+          return navigate(AppPath.SignInUp);
+        }
+
+        const { loginToken, workspaceUrls } = verificationResult;
+
+        if (!loginToken) {
+          throw new Error('Missing login token');
+        }
 
         const workspaceUrl = getWorkspaceUrl(workspaceUrls);
         if (workspaceUrl.slice(0, -1) !== window.location.origin) {

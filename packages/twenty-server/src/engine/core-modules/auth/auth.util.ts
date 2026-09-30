@@ -7,7 +7,7 @@ import {
 
 import * as bcrypt from 'bcrypt';
 
-export const PASSWORD_REGEX = /^.{8,50}$/;
+export { PASSWORD_REGEX } from 'twenty-shared/security';
 
 const saltRounds = 10;
 

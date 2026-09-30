@@ -6,6 +6,7 @@ export const CAPTCHA_PROTECTED_PATHS: string[] = [
   AppPath.Verify,
   AppPath.VerifyEmail,
   AppPath.ResetPassword,
+  AppPath.CreateFirstPassword,
   AppPath.Invite,
   getSettingsPath(SettingsPath.ProfilePage),
 ];

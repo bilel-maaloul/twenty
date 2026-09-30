@@ -3,6 +3,7 @@ export enum SignInUpStep {
   Init = 'init',
   Email = 'email',
   Password = 'password',
+  EmailOtpVerification = 'emailOtpVerification',
   EmailVerification = 'emailVerification',
   WorkspaceSelection = 'workspaceSelection',
   WorkspaceCreation = 'workspaceCreation',

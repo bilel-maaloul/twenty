@@ -69,6 +69,14 @@ jest.mock('@/settings/roles/hooks/usePermissionFlagMap', () => ({
   usePermissionFlagMap: jest.fn(),
 }));
 
+jest.mock('@/auth/hooks/useAuth', () => ({
+  useAuth: () => ({ signOut: jest.fn() }),
+}));
+
+jest.mock('twenty-shared/utils', () => ({
+  isDefined: (value: unknown) => value !== undefined && value !== null,
+}));
+
 jest.mock('@/domain-manager/hooks/useRedirectToWorkspaceDomain', () => ({
   useRedirectToWorkspaceDomain: jest.fn().mockImplementation(() => ({
     redirectToWorkspaceDomain: jest.fn(),
@@ -205,5 +213,50 @@ describe('useSettingsNavigationItems', () => {
         .filter((item) => item.path !== SettingsPath.Accounts)
         .every((item) => !item.isHidden),
     ).toBe(true);
+  });
+
+  it('does not grant server Admin Panel access through workspace permissions', () => {
+    (usePermissionFlagMap as jest.Mock).mockImplementation(() =>
+      Object.fromEntries(
+        Object.values(PermissionFlagType).map((permission) => [
+          permission,
+          true,
+        ]),
+      ),
+    );
+
+    const { result } = renderHook(() => useSettingsNavigationItems(), {
+      wrapper: Wrapper,
+    });
+
+    const otherSection = result.current.find(
+      (section) => section.label === 'Other',
+    );
+    const adminPanelItem = otherSection?.items.find(
+      (item) => item.label === 'Admin Panel',
+    );
+
+    expect(adminPanelItem?.isHidden).toBe(true);
+  });
+
+  it('shows Admin Panel when the current user has server-admin access', () => {
+    jotaiStore.set(currentUserState.atom, {
+      ...mockCurrentUser,
+      canAccessFullAdminPanel: true,
+    });
+    (usePermissionFlagMap as jest.Mock).mockImplementation(() => ({}));
+
+    const { result } = renderHook(() => useSettingsNavigationItems(), {
+      wrapper: Wrapper,
+    });
+
+    const otherSection = result.current.find(
+      (section) => section.label === 'Other',
+    );
+    const adminPanelItem = otherSection?.items.find(
+      (item) => item.label === 'Admin Panel',
+    );
+
+    expect(adminPanelItem?.isHidden).toBe(false);
   });
 });

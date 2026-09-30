@@ -24,13 +24,15 @@ import { useNavigateSettings } from '~/hooks/useNavigateSettings';
 import { currentUserState } from '@/auth/states/currentUserState';
 import { currentWorkspaceState } from '@/auth/states/currentWorkspaceState';
 import { useResendTemporaryPassword } from '@/workspace-member/hooks/useResendTemporaryPassword';
+import { IS_WORKSPACE_MEMBER_SUSPENDED } from '@/workspace-member/graphql/queries/isWorkspaceMemberSuspended';
+import { REACTIVATE_INACTIVE_WORKSPACE_MEMBER } from '@/workspace-member/graphql/mutations/reactivateInactiveWorkspaceMember';
 import { isImpersonatingState } from '@/auth/states/isImpersonatingState';
 import { useUpdateOneRecord } from '@/object-record/hooks/useUpdateOneRecord';
 import { MemberInfosTab } from '@/settings/members/components/MemberInfosTab';
 import { MemberPermissionsTab } from '@/settings/members/components/MemberPermissionsTab';
 import { useWorkspaceMemberRoles } from '@/settings/members/hooks/useWorkspaceMemberRoles';
 import { type WorkspaceMember } from '@/workspace-member/types/WorkspaceMember';
-import { useMutation } from '@apollo/client/react';
+import { useMutation, useQuery } from '@apollo/client/react';
 import {
   DeleteUserWorkspaceDocument,
   ImpersonateDocument,
@@ -48,6 +50,7 @@ const SETTINGS_WORKSPACE_MEMBER_TABS = {
 const DELETE_MEMBER_MODAL_ID = 'workspace-member-delete-modal';
 const RESEND_TEMPORARY_PASSWORD_MODAL_ID =
   'workspace-member-resend-temporary-password-modal';
+const REACTIVATE_MEMBER_MODAL_ID = 'workspace-member-reactivate-modal';
 
 export const SettingsWorkspaceMember = () => {
   const { workspaceMemberId = '' } = useParams();
@@ -66,6 +69,17 @@ export const SettingsWorkspaceMember = () => {
   );
   const { resendTemporaryPassword, loading: isResendingTemporaryPassword } =
     useResendTemporaryPassword();
+  const { data: suspensionData, refetch: refetchSuspensionStatus } = useQuery<
+    { isWorkspaceMemberSuspended: boolean },
+    { workspaceMemberId: string }
+  >(IS_WORKSPACE_MEMBER_SUSPENDED, {
+    variables: { workspaceMemberId },
+    skip: !canManageWorkspaceMembers || !workspaceMemberId,
+  });
+  const [reactivateInactiveMember, { loading: isReactivating }] = useMutation<
+    { reactivateInactiveWorkspaceMember: boolean },
+    { workspaceMemberId: string }
+  >(REACTIVATE_INACTIVE_WORKSPACE_MEMBER);
 
   const {
     roles,
@@ -154,7 +168,7 @@ export const SettingsWorkspaceMember = () => {
       switch (data?.resendTemporaryPassword.status) {
         case ResendTemporaryPasswordStatus.SENT:
           enqueueSuccessSnackBar({
-            message: t`Temporary sign-in instructions were sent by email.`,
+            message: t`Invitation instructions were sent by email.`,
           });
           return;
         case ResendTemporaryPasswordStatus.DELIVERY_UNAVAILABLE:
@@ -164,7 +178,7 @@ export const SettingsWorkspaceMember = () => {
           return;
         case ResendTemporaryPasswordStatus.UNAVAILABLE:
           enqueueErrorSnackBar({
-            message: t`Temporary-password resend is unavailable for this member.`,
+            message: t`Invitation resend is unavailable for this member.`,
           });
           return;
         case ResendTemporaryPasswordStatus.REVIEW_REQUIRED:
@@ -177,6 +191,29 @@ export const SettingsWorkspaceMember = () => {
     } catch {
       enqueueErrorSnackBar({
         message: t`Unable to resend sign-in instructions right now.`,
+      });
+    }
+  };
+
+  const handleReactivateMember = async () => {
+    try {
+      const { data } = await reactivateInactiveMember({
+        variables: { workspaceMemberId },
+      });
+
+      if (data?.reactivateInactiveWorkspaceMember) {
+        await refetchSuspensionStatus();
+        closeModal(REACTIVATE_MEMBER_MODAL_ID);
+        enqueueSuccessSnackBar({
+          message: t`Workspace membership reactivated.`,
+        });
+        return;
+      }
+
+      enqueueErrorSnackBar({ message: t`This member is not suspended.` });
+    } catch {
+      enqueueErrorSnackBar({
+        message: t`Unable to reactivate this workspace membership right now.`,
       });
     }
   };
@@ -276,6 +313,12 @@ export const SettingsWorkspaceMember = () => {
                     ? () => openModal(RESEND_TEMPORARY_PASSWORD_MODAL_ID)
                     : undefined
                 }
+                onReactivate={
+                  canManageWorkspaceMembers &&
+                  suspensionData?.isWorkspaceMemberSuspended
+                    ? () => openModal(REACTIVATE_MEMBER_MODAL_ID)
+                    : undefined
+                }
               />
             )}
 
@@ -299,12 +342,21 @@ export const SettingsWorkspaceMember = () => {
           />
           <ConfirmationModal
             modalInstanceId={RESEND_TEMPORARY_PASSWORD_MODAL_ID}
-            title={t`Resend temporary password?`}
-            subtitle={t`A new temporary password will replace the previous temporary password and be sent by email. The password will not be shown here.`}
+            title={t`Resend invitation?`}
+            subtitle={t`A new one-time invitation code will replace the previous code and be sent by email. The code will not be shown here.`}
             onConfirmClick={handleResendTemporaryPassword}
             confirmButtonText={t`Resend instructions`}
             confirmButtonAccent="blue"
             loading={isResendingTemporaryPassword}
+          />
+          <ConfirmationModal
+            modalInstanceId={REACTIVATE_MEMBER_MODAL_ID}
+            title={t`Reactivate workspace membership`}
+            subtitle={t`This member will be able to sign in to this workspace again. Their previous sessions remain revoked.`}
+            onConfirmClick={handleReactivateMember}
+            confirmButtonText={t`Reactivate member`}
+            confirmButtonAccent="blue"
+            loading={isReactivating}
           />
         </SettingsPageLayout>
       )}

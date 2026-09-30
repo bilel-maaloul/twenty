@@ -26,6 +26,8 @@
         "{projectRoot}/logic-function/dist",
         "{projectRoot}/metadata/package.json",
         "{projectRoot}/metadata/dist",
+        "{projectRoot}/security/package.json",
+        "{projectRoot}/security/dist",
         "{projectRoot}/testing/package.json",
         "{projectRoot}/testing/dist",
         "{projectRoot}/timeline/package.json",

@@ -1,4 +1,9 @@
 import { isAppEffectRedirectEnabledState } from '@/app/states/isAppEffectRedirectEnabledState';
+import { interactiveEmailOtpChallengeIdState } from '@/auth/states/interactiveEmailOtpChallengeIdState';
+import {
+  SignInUpStep,
+  signInUpStepState,
+} from '@/auth/states/signInUpStepState';
 import { useMarkSessionActive } from '@/auth/hooks/useMarkSessionActive';
 import { useSnackBar } from '@/ui/feedback/snack-bar-manager/hooks/useSnackBar';
 import { useSetAtomState } from '@/ui/utilities/state/jotai/hooks/useSetAtomState';
@@ -14,6 +19,10 @@ export const useRedeemSsoExchangeToken = () => {
   const setIsAppEffectRedirectEnabled = useSetAtomState(
     isAppEffectRedirectEnabledState,
   );
+  const setEmailOtpChallengeId = useSetAtomState(
+    interactiveEmailOtpChallengeIdState,
+  );
+  const setSignInUpStep = useSetAtomState(signInUpStepState);
   const [getAuthTokensFromSsoExchangeToken] = useMutation(
     GetAuthTokensFromSsoExchangeTokenDocument,
   );
@@ -33,6 +42,22 @@ export const useRedeemSsoExchangeToken = () => {
           throw new Error('No getAuthTokensFromSSOExchangeToken result');
         }
 
+        const authenticationResult = data.getAuthTokensFromSSOExchangeToken;
+
+        if (authenticationResult.requiresEmailOtp) {
+          if (!authenticationResult.emailOtpChallengeId) {
+            throw new Error('No email OTP challenge');
+          }
+
+          setEmailOtpChallengeId(authenticationResult.emailOtpChallengeId);
+          setSignInUpStep(SignInUpStep.EmailOtpVerification);
+          return;
+        }
+
+        if (!authenticationResult.tokens) {
+          throw new Error('No authentication token pair');
+        }
+
         markSessionActive();
       } catch (error: unknown) {
         enqueueErrorSnackBar(
@@ -48,6 +73,8 @@ export const useRedeemSsoExchangeToken = () => {
       getAuthTokensFromSsoExchangeToken,
       markSessionActive,
       setIsAppEffectRedirectEnabled,
+      setEmailOtpChallengeId,
+      setSignInUpStep,
       enqueueErrorSnackBar,
     ],
   );

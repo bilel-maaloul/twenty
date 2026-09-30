@@ -17,6 +17,7 @@ type MemberInfosTabProps = {
   onImpersonate?: () => void;
   onDelete: () => void;
   onResendTemporaryPassword?: () => void;
+  onReactivate?: () => void;
 };
 
 const StyledNameRow = styled.div`
@@ -36,6 +37,7 @@ export const MemberInfosTab = ({
   onImpersonate,
   onDelete,
   onResendTemporaryPassword,
+  onReactivate,
 }: MemberInfosTabProps) => {
   const [firstName, setFirstName] = useState(member.name.firstName);
   const [lastName, setLastName] = useState(member.name.lastName);
@@ -101,10 +103,18 @@ export const MemberInfosTab = ({
           )}
           {onResendTemporaryPassword && (
             <Button
-              title={t`Resend temporary password`}
+              title={t`Resend invitation`}
               variant="secondary"
               size="small"
               onClick={onResendTemporaryPassword}
+            />
+          )}
+          {onReactivate && (
+            <Button
+              title={t`Reactivate member`}
+              variant="secondary"
+              size="small"
+              onClick={onReactivate}
             />
           )}
           <Button

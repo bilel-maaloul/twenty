@@ -29,7 +29,7 @@ import {
   AuthExceptionCode,
 } from 'src/engine/core-modules/auth/auth.exception';
 import { WorkspaceDomainsService } from 'src/engine/core-modules/domain/workspace-domains/services/workspace-domains.service';
-import { EmailService } from 'src/engine/core-modules/email/email.service';
+import { EmailSenderService } from 'src/engine/core-modules/email/email-sender.service';
 import { FileUrlService } from 'src/engine/core-modules/file/file-url/file-url.service';
 import { I18nService } from 'src/engine/core-modules/i18n/i18n.service';
 import { OnboardingService } from 'src/engine/core-modules/onboarding/onboarding.service';
@@ -56,7 +56,7 @@ export class WorkspaceInvitationService {
     private readonly userWorkspaceRepository: Repository<UserWorkspaceEntity>,
     private readonly roleValidationService: RoleValidationService,
     private readonly twentyConfigService: TwentyConfigService,
-    private readonly emailService: EmailService,
+    private readonly emailSenderService: EmailSenderService,
     private readonly onboardingService: OnboardingService,
     private readonly workspaceDomainsService: WorkspaceDomainsService,
     private readonly i18nService: I18nService,
@@ -330,6 +330,10 @@ export class WorkspaceInvitationService {
 
     await this.throttleInvitationSending(workspace.id, emails);
 
+    if (emails.length > 0) {
+      await this.emailSenderService.verifySensitiveDelivery();
+    }
+
     if (isDefined(appTokenIdToInvalidate)) {
       await this.appTokenRepository.delete(appTokenIdToInvalidate);
     }
@@ -407,7 +411,7 @@ export class WorkspaceInvitationService {
         const i18n = this.i18nService.getI18nInstance(sender.locale);
         const subject = i18n._(joinTeamMsg);
 
-        await this.emailService.send({
+        await this.emailSenderService.sendSensitive({
           from: `${sender.name.firstName} ${sender.name.lastName} (via Twenty) <${this.twentyConfigService.get('EMAIL_FROM_ADDRESS')}>`,
           to: invitation.value.email,
           subject,

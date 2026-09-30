@@ -1,14 +1,19 @@
 import { i18n } from '@lingui/core';
 import { I18nProvider } from '@lingui/react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import { PasswordReset } from '~/pages/auth/PasswordReset';
 
-const mockSignInInWorkspace = jest.fn();
-const mockSignInGlobal = jest.fn();
+jest.mock('twenty-shared/utils', () => ({
+  isDefined: (value: unknown) => value !== undefined && value !== null,
+}));
+
 const mockUpdatePasswordViaToken = jest.fn();
-const mockRedirect = jest.fn();
 const mockNavigate = jest.fn();
+const mockClearSession = jest.fn();
+const mockEnqueueSuccessSnackBar = jest.fn();
+let mockIsCaptchaReady = true;
 
 i18n.activate('en');
 
@@ -28,22 +33,14 @@ jest.mock('@apollo/client/react', () => ({
 
 jest.mock('@/auth/hooks/useAuth', () => ({
   useAuth: () => ({
-    signInWithCredentialsInWorkspace: mockSignInInWorkspace,
-    signInWithCredentials: mockSignInGlobal,
+    clearSession: mockClearSession,
   }),
 }));
-jest.mock('@/auth/hooks/useIsLogged', () => ({ useIsLogged: () => false }));
 jest.mock('@/captcha/hooks/useReadCaptchaToken', () => ({
   useReadCaptchaToken: () => ({ readCaptchaToken: () => 'captcha-token' }),
 }));
 jest.mock('@/client-config/hooks/useCaptcha', () => ({
-  useCaptcha: () => ({ isCaptchaReady: true }),
-}));
-jest.mock('@/domain-manager/hooks/useIsCurrentLocationOnAWorkspace', () => ({
-  useIsCurrentLocationOnAWorkspace: () => ({ isOnAWorkspace: true }),
-}));
-jest.mock('@/domain-manager/hooks/useRedirect', () => ({
-  useRedirect: () => ({ redirect: mockRedirect }),
+  useCaptcha: () => ({ isCaptchaReady: mockIsCaptchaReady }),
 }));
 jest.mock('~/hooks/useNavigateApp', () => ({
   useNavigateApp: () => mockNavigate,
@@ -51,7 +48,7 @@ jest.mock('~/hooks/useNavigateApp', () => ({
 jest.mock('@/ui/feedback/snack-bar-manager/hooks/useSnackBar', () => ({
   useSnackBar: () => ({
     enqueueErrorSnackBar: jest.fn(),
-    enqueueSuccessSnackBar: jest.fn(),
+    enqueueSuccessSnackBar: mockEnqueueSuccessSnackBar,
   }),
 }));
 jest.mock('@/ui/utilities/state/jotai/hooks/useAtomStateValue', () => ({
@@ -114,26 +111,88 @@ jest.mock('@/ui/input/components/TextInput', () => ({
 describe('PasswordReset first-password outcome', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockIsCaptchaReady = true;
     mockUpdatePasswordViaToken.mockResolvedValue({
       data: { updatePasswordViaResetToken: { success: true } },
     });
   });
 
-  it('does not redirect into the CRM after a restricted workspace sign-in', async () => {
-    mockSignInInWorkspace.mockResolvedValue('first-password-required');
+  it('submits confirmation and CAPTCHA, then routes to normal sign-in after reset succeeds', async () => {
+    const user = userEvent.setup();
     render(
       <I18nProvider i18n={i18n}>
         <PasswordReset />
       </I18nProvider>,
     );
 
-    fireEvent.change(await screen.findByPlaceholderText('New Password'), {
-      target: { value: 'FreshPassword123' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Change Password' }));
+    await user.type(
+      await screen.findByPlaceholderText('New Password'),
+      'FreshPassword123',
+    );
+    await user.type(
+      screen.getByPlaceholderText('Confirm New Password'),
+      'FreshPassword123',
+    );
+    await user.click(screen.getByRole('button', { name: 'Change Password' }));
 
-    await waitFor(() => expect(mockSignInInWorkspace).toHaveBeenCalled());
-    expect(mockRedirect).not.toHaveBeenCalled();
+    await waitFor(() => expect(mockUpdatePasswordViaToken).toHaveBeenCalled());
+    expect(mockUpdatePasswordViaToken).toHaveBeenCalledWith({
+      variables: {
+        token: 'reset-token',
+        newPassword: 'FreshPassword123',
+        captchaToken: 'captcha-token',
+      },
+    });
+    expect(
+      screen.getByText(
+        'Your password has been updated. Sign in with your new password.',
+      ),
+    ).toBeInTheDocument();
     expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockClearSession).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(mockClearSession).toHaveBeenCalledTimes(1);
+    expect(mockUpdatePasswordViaToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not submit when password confirmation does not match', async () => {
+    const user = userEvent.setup();
+    render(
+      <I18nProvider i18n={i18n}>
+        <PasswordReset />
+      </I18nProvider>,
+    );
+
+    await user.type(
+      await screen.findByPlaceholderText('New Password'),
+      'FreshPassword123',
+    );
+    await user.type(
+      screen.getByPlaceholderText('Confirm New Password'),
+      'DifferentPassword123',
+    );
+    await user.click(screen.getByRole('button', { name: 'Change Password' }));
+
+    expect(
+      await screen.findByText('Passwords do not match'),
+    ).toBeInTheDocument();
+    expect(mockUpdatePasswordViaToken).not.toHaveBeenCalled();
+  });
+
+  it('requires CAPTCHA readiness before reset submission', async () => {
+    mockIsCaptchaReady = false;
+    render(
+      <I18nProvider i18n={i18n}>
+        <PasswordReset />
+      </I18nProvider>,
+    );
+
+    const submitButton = await screen.findByRole('button', {
+      name: 'Change Password',
+    });
+
+    expect(submitButton).toBeDisabled();
+    expect(mockUpdatePasswordViaToken).not.toHaveBeenCalled();
   });
 });

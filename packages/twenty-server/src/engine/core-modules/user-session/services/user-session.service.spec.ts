@@ -8,6 +8,9 @@ describe('UserSessionService.issueSessionForTokenPair', () => {
     create: jest.fn((input) => input),
     save: jest.fn(),
   };
+  const userWorkspaceRepository = {
+    update: jest.fn().mockResolvedValue({ affected: 1 }),
+  };
   const jwtWrapperService = {
     decode: jest.fn().mockReturnValue({
       type: JwtTokenTypeEnum.ACCESS,
@@ -28,10 +31,15 @@ describe('UserSessionService.issueSessionForTokenPair', () => {
   const service = new UserSessionService(
     userSessionRepository as never,
     {} as never,
+    userWorkspaceRepository as never,
     {} as never,
     twentyConfigService as never,
     jwtWrapperService as never,
-    {} as never,
+    {
+      createContext: jest.fn(() => ({
+        insertWorkspaceEvent: jest.fn(),
+      })),
+    } as never,
     userSessionCookieService as never,
   );
   const tokenPair = {
@@ -47,6 +55,7 @@ describe('UserSessionService.issueSessionForTokenPair', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    userWorkspaceRepository.update.mockResolvedValue({ affected: 1 });
     userSessionCookieService.extractSessionTokenFromRequest.mockReset();
   });
 
@@ -110,5 +119,44 @@ describe('UserSessionService.issueSessionForTokenPair', () => {
     expect(userSessionRepository.create).toHaveBeenCalledWith(
       expect.objectContaining({ credentialEpoch: 2 }),
     );
+  });
+
+  it('records workspace activity for an interactive sign-in', async () => {
+    userSessionRepository.save.mockImplementationOnce(async (session) => ({
+      ...session,
+      id: 'session-id',
+    }));
+
+    await service.issueSessionForTokenPair({
+      tokenPair,
+      request: { headers: {}, ip: '127.0.0.1', res: {} } as never,
+      origin: 'sign_in',
+    });
+
+    expect(userWorkspaceRepository.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'user-workspace-id',
+        userId: 'user-id',
+        workspaceId: 'workspace-id',
+      }),
+      expect.objectContaining({
+        lastHumanInteractiveActivityAt: expect.any(Date),
+      }),
+    );
+  });
+
+  it('does not count a renewal bridge as new human activity', async () => {
+    userSessionRepository.save.mockImplementationOnce(async (session) => ({
+      ...session,
+      id: 'session-id',
+    }));
+
+    await service.issueSessionForTokenPair({
+      tokenPair,
+      request: { headers: {}, ip: '127.0.0.1', res: {} } as never,
+      origin: 'renewal_bridge',
+    });
+
+    expect(userWorkspaceRepository.update).not.toHaveBeenCalled();
   });
 });

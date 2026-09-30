@@ -2,6 +2,7 @@ import { useHasMultipleAuthMethods } from '@/auth/sign-in-up/hooks/useHasMultipl
 import { useSignInUp } from '@/auth/sign-in-up/hooks/useSignInUp';
 import { type Form } from '@/auth/sign-in-up/hooks/useSignInUpForm';
 import { lastAuthenticatedMethodState } from '@/auth/states/lastAuthenticatedMethodState';
+import { isInvitationPasscodeModeState } from '@/auth/states/isInvitationPasscodeModeState';
 import { workspacePublicDataState } from '@/auth/states/workspacePublicDataState';
 import {
   SignInUpStep,
@@ -56,8 +57,12 @@ export const SignInUpWithCredentials = ({
   const form = useFormContext<Form>();
 
   const [signInUpStep, setSignInUpStep] = useAtomState(signInUpStepState);
+  const [isInvitationPasscodeMode, setIsInvitationPasscodeMode] = useAtomState(
+    isInvitationPasscodeModeState,
+  );
   const [showErrors, setShowErrors] = useState(false);
   const [isPasswordResetMode, setIsPasswordResetMode] = useState(false);
+  const [isPasswordExpired, setIsPasswordExpired] = useState(false);
   const [isPasswordResetLoading, setIsPasswordResetLoading] = useState(false);
   const captcha = useAtomStateValue(captchaState);
   const workspacePublicData = useAtomStateValue(workspacePublicDataState);
@@ -81,6 +86,7 @@ export const SignInUpWithCredentials = ({
     submitCredentials,
   } = useSignInUp(form);
   const email = form.watch('email') ?? '';
+  const password = form.watch('password') ?? '';
   const isV2Checkbox =
     captcha?.provider === CaptchaDriverType.GOOGLE_RECAPTCHA_V_2_CHECKBOX;
 
@@ -116,14 +122,25 @@ export const SignInUpWithCredentials = ({
         }
       } else if (!form.formState.isSubmitting) {
         setShowErrors(true);
-        form.handleSubmit(submitCredentials)();
+        form.handleSubmit(async (formData) => {
+          const outcome = await submitCredentials(formData);
+
+          if (outcome === 'password-expired') {
+            form.setValue('password', '');
+            setIsPasswordExpired(true);
+            setIsPasswordResetMode(true);
+          }
+        })();
       }
     }
   };
 
   const onEmailChange = (email: string) => {
     if (email !== form.getValues('email')) {
+      setIsInvitationPasscodeMode(false);
+      form.setValue('password', '');
       setIsPasswordResetMode(false);
+      setIsPasswordExpired(false);
       setSignInUpStep(SignInUpStep.Email);
     }
   };
@@ -141,6 +158,10 @@ export const SignInUpWithCredentials = ({
       return t`Send reset link`;
     }
 
+    if (isInvitationPasscodeMode) {
+      return t`Continue`;
+    }
+
     if (
       signInUpMode === SignInUpMode.SignIn &&
       signInUpStep === SignInUpStep.Password
@@ -156,10 +177,18 @@ export const SignInUpWithCredentials = ({
     }
 
     return t`Continue`;
-  }, [isInviteMode, isPasswordResetMode, signInUpMode, signInUpStep, t]);
+  }, [
+    isInvitationPasscodeMode,
+    isInviteMode,
+    isPasswordResetMode,
+    signInUpMode,
+    signInUpStep,
+    t,
+  ]);
 
   const shouldWaitForCaptchaToken =
     signInUpStep !== SignInUpStep.Init &&
+    !isInvitationPasscodeMode &&
     isDefined(captcha?.provider) &&
     isRequestingCaptchaToken;
 
@@ -171,9 +200,12 @@ export const SignInUpWithCredentials = ({
   // We make the isValid check synchronous and update a reactState to make sure this does not happen
   const isPasswordStepSubmitButtonDisabledCondition =
     signInUpStep === SignInUpStep.Password &&
-    ((!isPasswordResetMode && !form.formState.isValid) ||
+    ((!isPasswordResetMode &&
+      (isInvitationPasscodeMode
+        ? !/^\d{6}$/.test(password)
+        : !form.formState.isValid)) ||
       (isPasswordResetMode && !email) ||
-      (isV2Checkbox && !isCaptchaReady) ||
+      (isV2Checkbox && !isInvitationPasscodeMode && !isCaptchaReady) ||
       form.formState.isSubmitting ||
       isPasswordResetLoading ||
       shouldWaitForCaptchaToken);
@@ -205,12 +237,22 @@ export const SignInUpWithCredentials = ({
               {!isPasswordResetMode && (
                 <SignInUpPasswordField
                   showErrors={showErrors}
-                  signInUpMode={signInUpMode}
+                  isInvitationPasscode={isInvitationPasscodeMode}
+                  isCreatingPassword={
+                    signInUpMode === SignInUpMode.SignUp || isInviteMode
+                  }
                 />
               )}
-              <CaptchaCheckbox
-                challengeKey={`${isGlobalScope ? 'global' : (workspacePublicData?.id ?? window.location.origin)}:${isPasswordResetMode ? 'password-reset' : isInviteMode ? 'invitation' : signInUpMode}:${email}`}
-              />
+              {!isInvitationPasscodeMode && (
+                <CaptchaCheckbox
+                  challengeKey={`${isGlobalScope ? 'global' : (workspacePublicData?.id ?? window.location.origin)}:${isPasswordResetMode ? 'password-reset' : isInviteMode ? 'invitation' : signInUpMode}:${email}`}
+                />
+              )}
+              {isPasswordExpired && (
+                <InputHint>
+                  {t`Your password has expired. Request a reset link to choose a new password.`}
+                </InputHint>
+              )}
             </>
           )}
           <StyledSsoButtonContainer>
@@ -228,39 +270,60 @@ export const SignInUpWithCredentials = ({
             {isSignUpBlockedByDDLLock && (
               <InputHint>{t`Sign-up is temporarily unavailable during maintenance.`}</InputHint>
             )}
-            {signInUpStep === SignInUpStep.Password && !isInviteMode && (
-              <StyledAuthActionContainer>
-                {isPasswordResetMode ? (
-                  <ClickToActionLink
-                    onClick={() => setIsPasswordResetMode(false)}
-                  >
-                    {t`Back to sign in`}
-                  </ClickToActionLink>
-                ) : signInUpMode === SignInUpMode.SignIn ? (
-                  <ClickToActionLink
-                    onClick={() => {
-                      if (isV2Checkbox) {
-                        setIsPasswordResetMode(true);
-                      } else {
-                        void handleResetPassword(email)();
-                      }
-                    }}
-                  >
-                    {t`Forgot your password?`}
-                  </ClickToActionLink>
-                ) : (
+            {signInUpStep === SignInUpStep.Password &&
+              !isInviteMode &&
+              !isInvitationPasscodeMode && (
+                <StyledAuthActionContainer>
+                  {isPasswordResetMode ? (
+                    <ClickToActionLink
+                      onClick={() => setIsPasswordResetMode(false)}
+                    >
+                      {t`Back to sign in`}
+                    </ClickToActionLink>
+                  ) : signInUpMode === SignInUpMode.SignIn ? (
+                    <ClickToActionLink
+                      onClick={() => {
+                        if (isV2Checkbox) {
+                          setIsPasswordResetMode(true);
+                        } else {
+                          void handleResetPassword(email)();
+                        }
+                      }}
+                    >
+                      {t`Forgot your password?`}
+                    </ClickToActionLink>
+                  ) : (
+                    <ClickToActionLink
+                      onClick={() => {
+                        form.setValue('password', '');
+                        setSignInUpMode(SignInUpMode.SignIn);
+                      }}
+                    >
+                      {t`Already have an account? Sign in`}
+                    </ClickToActionLink>
+                  )}
+                </StyledAuthActionContainer>
+              )}
+            {signInUpStep === SignInUpStep.Password &&
+              !isInviteMode &&
+              !isPasswordResetMode &&
+              signInUpMode === SignInUpMode.SignIn && (
+                <StyledAuthActionContainer>
                   <ClickToActionLink
                     onClick={() => {
                       form.setValue('password', '');
-                      setSignInUpMode(SignInUpMode.SignIn);
+                      setShowErrors(false);
+                      setIsInvitationPasscodeMode(!isInvitationPasscodeMode);
                     }}
                   >
-                    {t`Already have an account? Sign in`}
+                    {isInvitationPasscodeMode
+                      ? t`Use your password instead`
+                      : t`Have an invitation code?`}
                   </ClickToActionLink>
-                )}
-              </StyledAuthActionContainer>
-            )}
+                </StyledAuthActionContainer>
+              )}
             {signInUpStep === SignInUpStep.Password &&
+              !isInvitationPasscodeMode &&
               !isInviteMode &&
               !isPasswordResetMode &&
               signInUpMode === SignInUpMode.SignIn && (

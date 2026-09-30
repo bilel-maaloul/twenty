@@ -35,7 +35,7 @@ import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.ent
 import { WorkspaceCacheService } from 'src/engine/workspace-cache/services/workspace-cache.service';
 import { assertIsDefinedOrThrow, isDefined } from 'twenty-shared/utils';
 import { WorkspaceActivationStatus } from 'twenty-shared/workspace';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 @Injectable()
 export class JwtAuthStrategy extends PassportStrategy(Strategy, 'jwt') {
@@ -156,6 +156,7 @@ export class JwtAuthStrategy extends PassportStrategy(Strategy, 'jwt') {
       userId,
       userWorkspaceId: payload.userWorkspaceId,
       expectedWorkspaceId: workspace.id,
+      requireActiveMembership: true,
     });
 
     assertIsDefinedOrThrow(
@@ -225,10 +226,31 @@ export class JwtAuthStrategy extends PassportStrategy(Strategy, 'jwt') {
     userId: string;
     userWorkspaceId: string;
     expectedWorkspaceId?: string;
+    requireActiveMembership?: boolean;
   }): Promise<{
     user: AuthContextUser;
     userWorkspace: FlatUserWorkspace;
   } | null> {
+    if (params.requireActiveMembership === true) {
+      if (!params.expectedWorkspaceId) {
+        return null;
+      }
+
+      const activeMembership = await this.userWorkspaceRepository.findOne({
+        where: {
+          id: params.userWorkspaceId,
+          userId: params.userId,
+          workspaceId: params.expectedWorkspaceId,
+          suspendedAt: IsNull(),
+        },
+        select: ['id'],
+      });
+
+      if (!isDefined(activeMembership)) {
+        return null;
+      }
+    }
+
     const user = await this.coreEntityCacheService.get('user', params.userId);
 
     if (!isDefined(user)) {
@@ -288,7 +310,10 @@ export class JwtAuthStrategy extends PassportStrategy(Strategy, 'jwt') {
       typeof user.disabled === 'boolean' &&
       typeof user.mustChangePassword === 'boolean' &&
       Number.isSafeInteger(user.credentialEpoch) &&
-      user.credentialEpoch >= 0
+      user.credentialEpoch >= 0 &&
+      (user.permanentPasswordExpiresAt === null ||
+        (typeof user.permanentPasswordExpiresAt === 'string' &&
+          Number.isFinite(Date.parse(user.permanentPasswordExpiresAt))))
     );
   }
 
@@ -310,6 +335,8 @@ export class JwtAuthStrategy extends PassportStrategy(Strategy, 'jwt') {
         disabled: true,
         mustChangePassword: true,
         credentialEpoch: true,
+        passwordHash: true,
+        permanentPasswordExpiresAt: true,
       },
     });
 
@@ -322,7 +349,12 @@ export class JwtAuthStrategy extends PassportStrategy(Strategy, 'jwt') {
       typeof authoritativeUser.disabled !== 'boolean' ||
       typeof authoritativeUser.mustChangePassword !== 'boolean' ||
       !Number.isSafeInteger(authoritativeUser.credentialEpoch) ||
-      authoritativeUser.credentialEpoch < 0
+      authoritativeUser.credentialEpoch < 0 ||
+      (authoritativeUser.permanentPasswordExpiresAt !== null &&
+        (!(authoritativeUser.permanentPasswordExpiresAt instanceof Date) ||
+          !Number.isFinite(
+            authoritativeUser.permanentPasswordExpiresAt.getTime(),
+          )))
     ) {
       throw new AuthException(
         'User authentication state is incomplete',
@@ -337,6 +369,8 @@ export class JwtAuthStrategy extends PassportStrategy(Strategy, 'jwt') {
       disabled: authoritativeUser.disabled,
       mustChangePassword: authoritativeUser.mustChangePassword,
       credentialEpoch: authoritativeUser.credentialEpoch,
+      permanentPasswordExpiresAt:
+        authoritativeUser.permanentPasswordExpiresAt?.toISOString() ?? null,
     };
   }
 

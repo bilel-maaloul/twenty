@@ -18,10 +18,7 @@ import { JwtWrapperService } from 'src/engine/core-modules/jwt/services/jwt-wrap
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import { UserEntity } from 'src/engine/core-modules/user/user.entity';
 import { userValidator } from 'src/engine/core-modules/user/user.validate';
-import {
-  assertUserCanAuthenticate,
-  assertUserCredentialIsValid,
-} from 'src/engine/core-modules/auth/utils/assert-user-credential-is-valid.util';
+import { assertUserCredentialIsValid } from 'src/engine/core-modules/auth/utils/assert-user-credential-is-valid.util';
 
 @Injectable()
 export class WorkspaceAgnosticTokenService {
@@ -35,9 +32,11 @@ export class WorkspaceAgnosticTokenService {
   async generateWorkspaceAgnosticToken({
     userId,
     authProvider,
+    expectedCredentialEpoch,
   }: {
     userId: string;
     authProvider: WorkspaceAgnosticTokenJwtPayload['authProvider'];
+    expectedCredentialEpoch?: number;
   }): Promise<AuthToken> {
     const expiresIn = this.twentyConfigService.get(
       'WORKSPACE_AGNOSTIC_TOKEN_EXPIRES_IN',
@@ -53,7 +52,17 @@ export class WorkspaceAgnosticTokenService {
       user,
       new AuthException('User is not found', AuthExceptionCode.INVALID_INPUT),
     );
-    assertUserCanAuthenticate(user);
+    assertUserCredentialIsValid(user, user.credentialEpoch);
+
+    if (
+      expectedCredentialEpoch !== undefined &&
+      user.credentialEpoch !== expectedCredentialEpoch
+    ) {
+      throw new AuthException(
+        'Credential is no longer valid',
+        AuthExceptionCode.UNAUTHENTICATED,
+      );
+    }
 
     const jwtPayload: WorkspaceAgnosticTokenJwtPayload = {
       sub: user.id,

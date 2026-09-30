@@ -6,8 +6,30 @@ import { CalendarChannelEntity } from 'src/engine/metadata-modules/calendar-chan
 import { ConnectedAccountEntity } from 'src/engine/metadata-modules/connected-account/entities/connected-account.entity';
 import { CalendarEventFindManyPostQueryHook } from 'src/modules/calendar/common/query-hooks/calendar-event/calendar-event-find-many.post-query.hook';
 import { CalendarEventFindOnePostQueryHook } from 'src/modules/calendar/common/query-hooks/calendar-event/calendar-event-find-one.post-query.hook';
+import {
+  CalendarEventNestedFindManyVisibilityPostQueryHook,
+  CalendarEventNestedFindOneVisibilityPostQueryHook,
+} from 'src/modules/calendar/common/query-hooks/calendar-event/calendar-event-nested-visibility.post-query-hooks';
+import {
+  CalendarEventCreateManyAccessPreQueryHook,
+  CalendarEventCreateOneAccessPreQueryHook,
+  CalendarEventDeleteManyAccessPreQueryHook,
+  CalendarEventDeleteOneAccessPreQueryHook,
+  CalendarEventDestroyManyAccessPreQueryHook,
+  CalendarEventDestroyOneAccessPreQueryHook,
+  CalendarEventFindDuplicatesAccessPreQueryHook,
+  CalendarEventFindManyAccessPreQueryHook,
+  CalendarEventFindOneAccessPreQueryHook,
+  CalendarEventGroupByAccessPreQueryHook,
+  CalendarEventMergeManyAccessPreQueryHook,
+  CalendarEventRestoreManyAccessPreQueryHook,
+  CalendarEventRestoreOneAccessPreQueryHook,
+  CalendarEventUpdateManyAccessPreQueryHook,
+  CalendarEventUpdateOneAccessPreQueryHook,
+} from 'src/modules/calendar/common/query-hooks/calendar-event/calendar-event-access.pre-query-hooks';
 import { ApplyCalendarEventsVisibilityRestrictionsService } from 'src/modules/calendar/common/query-hooks/calendar-event/services/apply-calendar-events-visibility-restrictions.service';
 import { CalendarEventTargetCreateManyPreQueryHook } from 'src/modules/calendar/common/query-hooks/calendar-event-target/calendar-event-target-create-many.pre-query-hook';
+import * as calendarEventJunctionAccessPreQueryHooks from 'src/modules/calendar/common/query-hooks/calendar-event-target/calendar-event-junction-access.pre-query-hooks';
 import { CalendarEventTargetCreateOnePreQueryHook } from 'src/modules/calendar/common/query-hooks/calendar-event-target/calendar-event-target-create-one.pre-query-hook';
 
 @Module({
@@ -20,10 +42,28 @@ import { CalendarEventTargetCreateOnePreQueryHook } from 'src/modules/calendar/c
   ],
   providers: [
     ApplyCalendarEventsVisibilityRestrictionsService,
+    CalendarEventCreateManyAccessPreQueryHook,
+    CalendarEventCreateOneAccessPreQueryHook,
+    CalendarEventDeleteManyAccessPreQueryHook,
+    CalendarEventDeleteOneAccessPreQueryHook,
+    CalendarEventDestroyManyAccessPreQueryHook,
+    CalendarEventDestroyOneAccessPreQueryHook,
+    CalendarEventFindDuplicatesAccessPreQueryHook,
+    CalendarEventFindManyAccessPreQueryHook,
+    CalendarEventFindOneAccessPreQueryHook,
     CalendarEventFindOnePostQueryHook,
     CalendarEventFindManyPostQueryHook,
+    CalendarEventNestedFindManyVisibilityPostQueryHook,
+    CalendarEventNestedFindOneVisibilityPostQueryHook,
+    CalendarEventGroupByAccessPreQueryHook,
+    CalendarEventMergeManyAccessPreQueryHook,
+    CalendarEventRestoreManyAccessPreQueryHook,
+    CalendarEventRestoreOneAccessPreQueryHook,
     CalendarEventTargetCreateOnePreQueryHook,
     CalendarEventTargetCreateManyPreQueryHook,
+    ...Object.values(calendarEventJunctionAccessPreQueryHooks),
+    CalendarEventUpdateManyAccessPreQueryHook,
+    CalendarEventUpdateOneAccessPreQueryHook,
   ],
 })
 export class CalendarQueryHookModule {}

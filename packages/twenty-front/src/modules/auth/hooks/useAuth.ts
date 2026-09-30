@@ -13,6 +13,7 @@ import {
   GetAuthTokensFromLoginTokenDocument,
   GetAuthTokensFromOtpDocument,
   GetLoginTokenFromCredentialsDocument,
+  ResendInteractiveEmailOtpDocument,
   GetWorkspaceCreationDefaultsDocument,
   SignInDocument,
   SignOutDocument,
@@ -20,6 +21,8 @@ import {
   SignUpDocument,
   VerifyEmailAndGetLoginTokenDocument,
   VerifyEmailAndGetWorkspaceAgnosticTokenDocument,
+  VerifyFirstPasswordInvitationPasscodeDocument,
+  VerifyInteractiveEmailOtpDocument,
 } from '~/generated-metadata/graphql';
 
 import { useMarkSessionActive } from '@/auth/hooks/useMarkSessionActive';
@@ -40,6 +43,7 @@ import { useSetAtomState } from '@/ui/utilities/state/jotai/hooks/useSetAtomStat
 
 import { isAppEffectRedirectEnabledState } from '@/app/states/isAppEffectRedirectEnabledState';
 import { loginTokenState } from '@/auth/states/loginTokenState';
+import { interactiveEmailOtpChallengeIdState } from '@/auth/states/interactiveEmailOtpChallengeIdState';
 import {
   SignInUpStep,
   signInUpStepState,
@@ -65,7 +69,11 @@ import { getWorkspaceUrl } from '~/utils/getWorkspaceUrl';
 import { isGraphqlErrorOfType } from '~/utils/is-graphql-error-of-type.util';
 import { useStore } from 'jotai';
 
-type CredentialSignInOutcome = 'normal' | 'first-password-required';
+type CredentialSignInOutcome =
+  | 'normal'
+  | 'first-password-required'
+  | 'email-otp-required'
+  | 'password-expired';
 
 export const useAuth = () => {
   const store = useStore();
@@ -86,6 +94,9 @@ export const useAuth = () => {
   const apolloClient = useApolloClient();
 
   const setSignInUpStep = useSetAtomState(signInUpStepState);
+  const setEmailOtpChallengeId = useSetAtomState(
+    interactiveEmailOtpChallengeIdState,
+  );
   const { redirect } = useRedirect();
   const { redirectToWorkspaceDomain } = useRedirectToWorkspaceDomain();
 
@@ -104,7 +115,16 @@ export const useAuth = () => {
   const [verifyEmailAndGetWorkspaceAgnosticToken] = useMutation(
     VerifyEmailAndGetWorkspaceAgnosticTokenDocument,
   );
+  const [verifyFirstPasswordInvitationPasscodeMutation] = useMutation(
+    VerifyFirstPasswordInvitationPasscodeDocument,
+  );
   const [getAuthTokensFromOtp] = useMutation(GetAuthTokensFromOtpDocument);
+  const [verifyInteractiveEmailOtpMutation] = useMutation(
+    VerifyInteractiveEmailOtpDocument,
+  );
+  const [resendInteractiveEmailOtpMutation] = useMutation(
+    ResendInteractiveEmailOtpDocument,
+  );
   const [signOutMutation] = useMutation(SignOutDocument);
 
   const workspacePublicData = useAtomStateValue(workspacePublicDataState);
@@ -118,6 +138,33 @@ export const useAuth = () => {
   const [, setSearchParams] = useSearchParams();
 
   const navigate = useNavigate();
+
+  const handleVerifyFirstPasswordInvitationPasscode = useCallback(
+    async (email: string, passcode: string) => {
+      const result = await verifyFirstPasswordInvitationPasscodeMutation({
+        variables: { email, passcode, origin },
+      });
+
+      if (isDefined(result.error)) {
+        throw result.error;
+      }
+
+      if (result.data?.verifyFirstPasswordInvitationPasscode !== true) {
+        throw new Error('Invitation passcode verification failed');
+      }
+
+      navigate(AppPath.CreateFirstPassword);
+    },
+    [verifyFirstPasswordInvitationPasscodeMutation, origin, navigate],
+  );
+
+  const startEmailOtpChallenge = useCallback(
+    (challengeId: string) => {
+      setEmailOtpChallengeId(challengeId);
+      setSignInUpStep(SignInUpStep.EmailOtpVerification);
+    },
+    [setEmailOtpChallengeId, setSignInUpStep],
+  );
 
   const clearSession = useCallback(() => {
     // The assign below is the only navigation: keep the redirect effect from
@@ -261,6 +308,21 @@ export const useAuth = () => {
         throw new Error('No workspace agnostic token in result');
       }
 
+      const verificationResult = data.verifyEmailAndGetWorkspaceAgnosticToken;
+
+      if (verificationResult.requiresEmailOtp) {
+        if (!verificationResult.emailOtpChallengeId) {
+          throw new Error('No email OTP challenge');
+        }
+
+        startEmailOtpChallenge(verificationResult.emailOtpChallengeId);
+        return;
+      }
+
+      if (!verificationResult.tokens) {
+        throw new Error('No authentication token pair');
+      }
+
       markSessionActive();
 
       const { user } = await loadCurrentUser();
@@ -275,6 +337,7 @@ export const useAuth = () => {
       markSessionActive,
       loadCurrentUser,
       navigateAfterMultiWorkspaceSignInUp,
+      startEmailOtpChallenge,
     ],
   );
 
@@ -314,6 +377,23 @@ export const useAuth = () => {
           throw new Error('No getAuthTokensFromLoginToken result');
         }
 
+        const authenticationResult =
+          getAuthTokensResult.data.getAuthTokensFromLoginToken;
+
+        if (authenticationResult.requiresEmailOtp) {
+          if (!authenticationResult.emailOtpChallengeId) {
+            throw new Error('No email OTP challenge');
+          }
+
+          startEmailOtpChallenge(authenticationResult.emailOtpChallengeId);
+          navigate(AppPath.SignInUp);
+          return;
+        }
+
+        if (!authenticationResult.tokens) {
+          throw new Error('No authentication token pair');
+        }
+
         await handleLoadWorkspaceAfterAuthentication();
       } catch (error) {
         if (
@@ -344,6 +424,7 @@ export const useAuth = () => {
     },
     [
       handleSetLoginToken,
+      startEmailOtpChallenge,
       getAuthTokensFromLoginToken,
       origin,
       handleLoadWorkspaceAfterAuthentication,
@@ -376,6 +457,23 @@ export const useAuth = () => {
           return 'first-password-required';
         }
 
+        if (result.data.signIn.requiresPasswordReset) {
+          return 'password-expired';
+        }
+
+        if (result.data.signIn.requiresEmailOtp) {
+          if (!result.data.signIn.emailOtpChallengeId) {
+            throw new Error('No email OTP challenge');
+          }
+
+          startEmailOtpChallenge(result.data.signIn.emailOtpChallengeId);
+          return 'email-otp-required';
+        }
+
+        if (!result.data.signIn.tokens) {
+          throw new Error('No authentication token pair');
+        }
+
         markSessionActive();
         const { user } = await loadCurrentUser();
 
@@ -400,8 +498,30 @@ export const useAuth = () => {
       setSignInUpStep,
       navigateAfterMultiWorkspaceSignInUp,
       navigate,
+      startEmailOtpChallenge,
     ],
   );
+
+  const completeFirstPasswordSignIn = useCallback(async () => {
+    markSessionActive();
+    const { user } = await loadCurrentUser();
+
+    if (!isMultiWorkspaceEnabled || isDefined(user.currentWorkspace)) {
+      navigate(AppPath.Index, { replace: true });
+      return;
+    }
+
+    await navigateAfterMultiWorkspaceSignInUp(
+      user.availableWorkspaces,
+      user.email,
+    );
+  }, [
+    isMultiWorkspaceEnabled,
+    markSessionActive,
+    loadCurrentUser,
+    navigateAfterMultiWorkspaceSignInUp,
+    navigate,
+  ]);
 
   const handleCredentialsSignUp = useCallback(
     async (email: string, password: string, captchaToken?: string) => {
@@ -428,6 +548,19 @@ export const useAuth = () => {
         throw new Error('No signUp result');
       }
 
+      if (signUpResult.data.signUp.requiresEmailOtp) {
+        if (!signUpResult.data.signUp.emailOtpChallengeId) {
+          throw new Error('No email OTP challenge');
+        }
+
+        startEmailOtpChallenge(signUpResult.data.signUp.emailOtpChallengeId);
+        return null;
+      }
+
+      if (!signUpResult.data.signUp.tokens) {
+        throw new Error('No authentication token pair');
+      }
+
       markSessionActive();
 
       const { user } = await loadCurrentUser();
@@ -445,6 +578,7 @@ export const useAuth = () => {
       loadCurrentUser,
       setSignInUpStep,
       navigateAfterMultiWorkspaceSignInUp,
+      startEmailOtpChallenge,
     ],
   );
 
@@ -463,6 +597,18 @@ export const useAuth = () => {
         navigate(AppPath.CreateFirstPassword);
         return 'first-password-required';
       }
+      if (result.requiresPasswordReset) {
+        return 'password-expired';
+      }
+
+      if (result.requiresEmailOtp) {
+        if (!result.emailOtpChallengeId) {
+          throw new Error('No email OTP challenge');
+        }
+
+        startEmailOtpChallenge(result.emailOtpChallengeId);
+        return 'email-otp-required';
+      }
       if (!result.loginToken) {
         throw new Error('No login token');
       }
@@ -473,6 +619,7 @@ export const useAuth = () => {
       handleGetLoginTokenFromCredentials,
       handleGetAuthTokensFromLoginToken,
       navigate,
+      startEmailOtpChallenge,
     ],
   );
 
@@ -656,9 +803,97 @@ export const useAuth = () => {
         throw new Error('No getAuthTokensFromOTP result');
       }
 
+      const authenticationResult =
+        getAuthTokensFromOtpResult.data.getAuthTokensFromOTP;
+
+      if (authenticationResult.requiresEmailOtp) {
+        if (!authenticationResult.emailOtpChallengeId) {
+          throw new Error('No email OTP challenge');
+        }
+
+        startEmailOtpChallenge(authenticationResult.emailOtpChallengeId);
+        navigate(AppPath.SignInUp);
+        return;
+      }
+
+      if (!authenticationResult.tokens) {
+        throw new Error('No authentication token pair');
+      }
+
       await handleLoadWorkspaceAfterAuthentication();
     },
-    [getAuthTokensFromOtp, origin, handleLoadWorkspaceAfterAuthentication],
+    [
+      getAuthTokensFromOtp,
+      origin,
+      handleLoadWorkspaceAfterAuthentication,
+      startEmailOtpChallenge,
+      navigate,
+    ],
+  );
+
+  const handleVerifyInteractiveEmailOtp = useCallback(
+    async (challengeId: string, code: string) => {
+      const result = await verifyInteractiveEmailOtpMutation({
+        variables: { challengeId, code, origin },
+      });
+
+      if (isDefined(result.error)) {
+        throw result.error;
+      }
+
+      const verificationResult = result.data?.verifyInteractiveEmailOtp;
+
+      if (!verificationResult) {
+        throw new Error('No email OTP verification result');
+      }
+
+      setEmailOtpChallengeId(null);
+
+      if (verificationResult.loginToken) {
+        await handleGetAuthTokensFromLoginToken(
+          verificationResult.loginToken.token,
+        );
+        return;
+      }
+
+      if (!verificationResult.tokens) {
+        throw new Error('No authentication token pair');
+      }
+
+      markSessionActive();
+      const { user } = await loadCurrentUser();
+
+      await navigateAfterMultiWorkspaceSignInUp(
+        user.availableWorkspaces,
+        user.email,
+      );
+    },
+    [
+      verifyInteractiveEmailOtpMutation,
+      origin,
+      setEmailOtpChallengeId,
+      handleGetAuthTokensFromLoginToken,
+      markSessionActive,
+      loadCurrentUser,
+      navigateAfterMultiWorkspaceSignInUp,
+    ],
+  );
+
+  const handleResendInteractiveEmailOtp = useCallback(
+    async (challengeId: string) => {
+      const result = await resendInteractiveEmailOtpMutation({
+        variables: { challengeId },
+      });
+
+      if (isDefined(result.error)) {
+        throw result.error;
+      }
+
+      if (!result.data?.resendInteractiveEmailOtp) {
+        throw new Error('No email OTP resend result');
+      }
+    },
+    [resendInteractiveEmailOtpMutation],
   );
 
   return {
@@ -674,9 +909,14 @@ export const useAuth = () => {
     signUpWithCredentialsInWorkspace: handleCredentialsSignUpInWorkspace,
     signInWithCredentialsInWorkspace: handleCredentialsSignInInWorkspace,
     signInWithCredentials: handleCredentialsSignIn,
+    completeFirstPasswordSignIn,
+    verifyFirstPasswordInvitationPasscode:
+      handleVerifyFirstPasswordInvitationPasscode,
     signInWithGoogle: handleGoogleLogin,
     signInWithMicrosoft: handleMicrosoftLogin,
     getAuthTokensFromOTP: handleGetAuthTokensFromOTP,
+    verifyInteractiveEmailOtp: handleVerifyInteractiveEmailOtp,
+    resendInteractiveEmailOtp: handleResendInteractiveEmailOtp,
     navigateAfterMultiWorkspaceSignInUp,
   };
 };

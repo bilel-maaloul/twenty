@@ -532,6 +532,7 @@ export class UserWorkspaceService {
     // their own members — they must sign in from the workspace URL directly.
     const alreadyMemberWorkspaces = user
       ? user.userWorkspaces
+          .filter(({ suspendedAt }) => !isDefined(suspendedAt))
           .map(({ workspace }) => ({ workspace }))
           .filter(
             ({ workspace }) =>
@@ -809,6 +810,10 @@ export class UserWorkspaceService {
     user: Pick<UserEntity, 'email'>,
     authProvider: AuthProviderEnum,
     canAutoLoginIntoWorkspaces = true,
+    loginTokenOptions?: {
+      emailOtpVerified?: boolean;
+      expectedCredentialEpoch?: number;
+    },
   ) {
     const [availableWorkspacesForSignUp, availableWorkspacesForSignIn] =
       await Promise.all([
@@ -835,6 +840,7 @@ export class UserWorkspaceService {
                           user.email,
                           workspace.id,
                           AuthProviderEnum.Password,
+                          loginTokenOptions,
                         )
                       ).token
                     : undefined,

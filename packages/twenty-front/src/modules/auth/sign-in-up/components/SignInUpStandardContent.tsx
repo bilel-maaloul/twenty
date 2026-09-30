@@ -77,6 +77,7 @@ export const SignInUpStandardContent = ({
         SignInUpStep.Password,
         SignInUpStep.TwoFactorAuthenticationProvision,
         SignInUpStep.TwoFactorAuthenticationVerification,
+        SignInUpStep.EmailOtpVerification,
         SignInUpStep.WorkspaceSelection,
         SignInUpStep.WorkspaceCreation,
       ].includes(signInUpStep) && (

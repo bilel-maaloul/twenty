@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { UseFilters, UseGuards, UsePipes } from '@nestjs/common';
-import { Args, Mutation } from '@nestjs/graphql';
+import { Args, Mutation, Query } from '@nestjs/graphql';
 import { msg } from '@lingui/core/macro';
 import { PermissionFlagType } from 'twenty-shared/constants';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -28,6 +28,7 @@ import { ThrottlerGraphqlApiExceptionFilter } from 'src/engine/core-modules/thro
 import { ThrottlerService } from 'src/engine/core-modules/throttler/throttler.service';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import { UserWorkspaceService } from 'src/engine/core-modules/user-workspace/user-workspace.service';
+import { UserWorkspaceInactivityService } from 'src/engine/core-modules/user-workspace/services/user-workspace-inactivity.service';
 import { UserEntity } from 'src/engine/core-modules/user/user.entity';
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
 import { AuthUserWorkspaceId } from 'src/engine/decorators/auth/auth-user-workspace-id.decorator';
@@ -63,6 +64,7 @@ export class WorkspaceMemberProvisioningResolver {
   constructor(
     private readonly temporaryPasswordProvisioningService: TemporaryPasswordProvisioningService,
     private readonly userWorkspaceService: UserWorkspaceService,
+    private readonly userWorkspaceInactivityService: UserWorkspaceInactivityService,
     private readonly roleValidationService: RoleValidationService,
     private readonly permissionsService: PermissionsService,
     private readonly throttlerService: ThrottlerService,
@@ -119,10 +121,12 @@ export class WorkspaceMemberProvisioningResolver {
 
       return {
         status:
-          result.workspaceMembership === 'complete' &&
-          result.temporaryPasswordEmail !== 'failed_or_unknown'
-            ? ProvisionWorkspaceMemberStatus.READY
-            : ProvisionWorkspaceMemberStatus.REVIEW_REQUIRED,
+          result.workspaceMembership !== 'complete' ||
+          result.invitationEmail === 'failed_or_unknown'
+            ? ProvisionWorkspaceMemberStatus.REVIEW_REQUIRED
+            : result.userWasRestored
+              ? ProvisionWorkspaceMemberStatus.RESTORED_AND_INVITED
+              : ProvisionWorkspaceMemberStatus.READY,
       };
     } catch (error) {
       if (error instanceof TemporaryPasswordProvisioningException) {
@@ -180,7 +184,13 @@ export class WorkspaceMemberProvisioningResolver {
       where: { id: workspaceMember.userId },
     });
 
-    if (!user || user.disabled || !user.mustChangePassword) {
+    if (
+      !user ||
+      user.disabled ||
+      !user.mustChangePassword ||
+      user.passwordHash ||
+      user.temporaryPasswordExpiresAt
+    ) {
       return { status: ResendTemporaryPasswordStatus.UNAVAILABLE };
     }
 
@@ -188,13 +198,14 @@ export class WorkspaceMemberProvisioningResolver {
 
     try {
       const result =
-        await this.temporaryPasswordProvisioningService.rotateTemporaryPassword(
+        await this.temporaryPasswordProvisioningService.resendInvitationPasscode(
           user.id,
+          workspace,
         );
 
       return {
         status:
-          result.temporaryPasswordEmail === 'sent'
+          result.invitationEmail === 'sent'
             ? ResendTemporaryPasswordStatus.SENT
             : ResendTemporaryPasswordStatus.REVIEW_REQUIRED,
       };
@@ -220,6 +231,64 @@ export class WorkspaceMemberProvisioningResolver {
         },
       );
     }
+  }
+
+  @Query(() => Boolean)
+  async isWorkspaceMemberSuspended(
+    @Args('workspaceMemberId', { type: () => UUIDScalarType })
+    workspaceMemberId: string,
+    @AuthUserWorkspaceId() userWorkspaceId: string,
+    @AuthWorkspace() workspace: WorkspaceEntity,
+  ): Promise<boolean> {
+    await this.assertCanManageWorkspaceMembers(userWorkspaceId, workspace.id);
+
+    const workspaceMember = await this.userWorkspaceService.getWorkspaceMember({
+      workspaceMemberId,
+      workspaceId: workspace.id,
+    });
+
+    if (!workspaceMember) {
+      return false;
+    }
+
+    const membership = await this.userWorkspaceService.checkUserWorkspaceExists(
+      workspaceMember.userId,
+      workspace.id,
+    );
+
+    return Boolean(membership?.suspendedAt);
+  }
+
+  @Mutation(() => Boolean)
+  async reactivateInactiveWorkspaceMember(
+    @Args('workspaceMemberId', { type: () => UUIDScalarType })
+    workspaceMemberId: string,
+    @AuthUserWorkspaceId() userWorkspaceId: string,
+    @AuthWorkspace() workspace: WorkspaceEntity,
+  ): Promise<boolean> {
+    await this.assertCanManageWorkspaceMembers(userWorkspaceId, workspace.id);
+
+    const workspaceMember = await this.userWorkspaceService.getWorkspaceMember({
+      workspaceMemberId,
+      workspaceId: workspace.id,
+    });
+
+    if (!workspaceMember) {
+      return false;
+    }
+
+    const membership = await this.userWorkspaceService.checkUserWorkspaceExists(
+      workspaceMember.userId,
+      workspace.id,
+    );
+
+    if (!membership?.suspendedAt) {
+      return false;
+    }
+
+    return this.userWorkspaceInactivityService.reactivateMembership(
+      membership.id,
+    );
   }
 
   private async assertCanManageWorkspaceMembers(

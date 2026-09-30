@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import { isDefined } from 'twenty-shared/utils';
 import { addMilliseconds } from 'date-fns';
 import ms from 'ms';
-import { Repository } from 'typeorm';
+import { IsNull, MoreThan, Repository } from 'typeorm';
 
 import {
   AppTokenEntity,
@@ -42,15 +42,38 @@ export class EmailVerificationTokenService {
       .update(plainToken)
       .digest('hex');
 
-    const verificationToken = this.appTokenRepository.create({
-      userId,
-      expiresAt,
-      type: AppTokenType.EmailVerificationToken,
-      value: hashedToken,
-      context: { email },
-    });
+    await this.appTokenRepository.manager.transaction(async (entityManager) => {
+      const user = await entityManager.getRepository(UserEntity).findOne({
+        where: { id: userId },
+        lock: { mode: 'pessimistic_write' },
+      });
 
-    await this.appTokenRepository.save(verificationToken);
+      if (!user) {
+        throw new EmailVerificationException(
+          'User not found',
+          EmailVerificationExceptionCode.INVALID_TOKEN,
+        );
+      }
+
+      const appTokenRepository = entityManager.getRepository(AppTokenEntity);
+
+      await appTokenRepository.update(
+        {
+          userId,
+          type: AppTokenType.EmailVerificationToken,
+          revokedAt: IsNull(),
+        },
+        { revokedAt: new Date() },
+      );
+
+      await appTokenRepository.save({
+        userId,
+        expiresAt,
+        type: AppTokenType.EmailVerificationToken,
+        value: hashedToken,
+        context: { email },
+      });
+    });
 
     return {
       token: plainToken,
@@ -58,7 +81,7 @@ export class EmailVerificationTokenService {
     };
   }
 
-  async validateEmailVerificationTokenOrThrow({
+  async consumeEmailVerificationTokenOrThrow({
     emailVerificationToken,
     email,
   }: {
@@ -84,10 +107,13 @@ export class EmailVerificationTokenService {
       .update(emailVerificationToken)
       .digest('hex');
 
+    const now = new Date();
     const appToken = await this.appTokenRepository.findOne({
       where: {
         value: hashedToken,
         type: AppTokenType.EmailVerificationToken,
+        revokedAt: IsNull(),
+        deletedAt: IsNull(),
       },
       relations: ['user'],
     });
@@ -113,7 +139,7 @@ export class EmailVerificationTokenService {
       );
     }
 
-    if (new Date() > appToken.expiresAt) {
+    if (appToken.expiresAt <= now) {
       throw new EmailVerificationException(
         'Email verification token expired',
         EmailVerificationExceptionCode.TOKEN_EXPIRED,
@@ -131,6 +157,24 @@ export class EmailVerificationTokenService {
       throw new EmailVerificationException(
         'Email does not match token',
         EmailVerificationExceptionCode.INVALID_EMAIL,
+      );
+    }
+
+    const consumeResult = await this.appTokenRepository.update(
+      {
+        id: appToken.id,
+        type: AppTokenType.EmailVerificationToken,
+        expiresAt: MoreThan(now),
+        revokedAt: IsNull(),
+        deletedAt: IsNull(),
+      },
+      { revokedAt: now },
+    );
+
+    if (consumeResult.affected !== 1) {
+      throw new EmailVerificationException(
+        'Invalid email verification token',
+        EmailVerificationExceptionCode.INVALID_TOKEN,
       );
     }
 

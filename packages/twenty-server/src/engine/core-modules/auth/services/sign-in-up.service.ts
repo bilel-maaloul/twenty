@@ -38,6 +38,7 @@ import {
   hashPassword,
 } from 'src/engine/core-modules/auth/auth.util';
 import { MAX_WORKSPACES_WITHOUT_ENTERPRISE_KEY } from 'src/engine/core-modules/auth/constants/max-workspaces-without-enterprise-key.constants';
+import { getPermanentPasswordExpiresAt } from 'src/engine/core-modules/auth/constants/permanent-password-lifetime.constant';
 import { getSignUpWithoutWorkspaceDecision } from 'src/engine/core-modules/auth/utils/get-sign-up-without-workspace-decision.util';
 import { hasProvisionedSignUpDestination } from 'src/engine/core-modules/auth/utils/has-provisioned-sign-up-destination.util';
 import { DEFAULT_DPA_REGION } from 'src/engine/core-modules/dpa/config/dpa-region-config.constant';
@@ -132,6 +133,8 @@ export class SignInUpService {
       partialNewUser.passwordHash = await this.generateHash(
         authParams.password,
       );
+      partialNewUser.permanentPasswordExpiresAt =
+        getPermanentPasswordExpiresAt();
     }
 
     return partialNewUser;

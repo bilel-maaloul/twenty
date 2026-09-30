@@ -22,6 +22,8 @@ import { CreateConnectedAccountService } from 'src/engine/core-modules/auth/serv
 import { CreateMessageChannelService } from 'src/engine/core-modules/auth/services/create-message-channel.service';
 import { CreateSsoConnectedAccountService } from 'src/engine/core-modules/auth/services/create-sso-connected-account.service';
 import { TemporaryPasswordProvisioningService } from 'src/engine/core-modules/auth/services/temporary-password-provisioning.service';
+import { EmailLoginOtpService } from 'src/engine/core-modules/auth/services/email-login-otp.service';
+import { PasswordLoginLockoutService } from 'src/engine/core-modules/auth/services/password-login-lockout.service';
 import { FirstPasswordCookieModule } from 'src/engine/core-modules/auth/services/first-password-cookie.module';
 import { FirstPasswordCreationService } from 'src/engine/core-modules/auth/services/first-password-creation.service';
 import { WorkspaceMemberProvisioningResolver } from 'src/engine/core-modules/auth/workspace-member-provisioning.resolver';
@@ -156,6 +158,8 @@ import { JwtAuthStrategy } from './strategies/jwt.auth.strategy';
   providers: [
     SignInUpService,
     AuthService,
+    PasswordLoginLockoutService,
+    EmailLoginOtpService,
     TemporaryPasswordProvisioningService,
     FirstPasswordCreationService,
     JwtAuthStrategy,

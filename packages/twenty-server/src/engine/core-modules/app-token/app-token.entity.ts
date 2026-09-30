@@ -25,9 +25,11 @@ export enum AppTokenType {
   InvitationToken = 'INVITATION_TOKEN',
   OnboardingInvitationToken = 'ONBOARDING_INVITATION_TOKEN',
   EmailVerificationToken = 'EMAIL_VERIFICATION_TOKEN',
+  EmailLoginOtp = 'EMAIL_LOGIN_OTP',
   EnterpriseValidityToken = 'ENTERPRISE_VALIDITY_TOKEN',
   SsoExchangeToken = 'SSO_EXCHANGE_TOKEN',
   FirstPasswordCreation = 'FIRST_PASSWORD_CREATION',
+  FirstPasswordInvitationPasscode = 'FIRST_PASSWORD_INVITATION_PASSCODE',
 }
 
 @Entity({ name: 'appToken', schema: 'core' })
@@ -96,5 +98,8 @@ export class AppTokenEntity {
     scope?: string;
     authProvider?: AuthProviderEnum;
     credentialEpoch?: number;
+    firstPasswordFlow?: 'temporary-password' | 'invitation-passcode';
+    emailOtpFlow?: 'login-token' | 'workspace-agnostic';
+    emailOtpResendCount?: number;
   } | null;
 }

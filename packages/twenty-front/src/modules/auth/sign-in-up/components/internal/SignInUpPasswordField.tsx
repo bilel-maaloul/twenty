@@ -1,13 +1,11 @@
 import { type Form } from '@/auth/sign-in-up/hooks/useSignInUpForm';
-import { SignInUpMode } from '@/auth/types/signInUpMode';
+import { PasswordRequirements } from '@/auth/components/PasswordRequirements';
 import { SettingsTextInput } from '@/ui/input/components/SettingsTextInput';
 import { styled } from '@linaria/react';
 import { useLingui } from '@lingui/react/macro';
 import { motion } from 'framer-motion';
-import { useContext } from 'react';
 import { Controller, useFormContext } from 'react-hook-form';
-import { StyledText } from 'twenty-ui/typography';
-import { ThemeContext, themeCssVariables } from 'twenty-ui/theme-constants';
+import { themeCssVariables } from 'twenty-ui/theme-constants';
 
 const StyledFullWidthMotionDiv = styled(motion.div)`
   width: 100%;
@@ -17,16 +15,20 @@ const StyledInputContainer = styled.div`
   margin-bottom: ${themeCssVariables.spacing[3]};
 `;
 
+type SignInUpPasswordFieldProps = {
+  showErrors: boolean;
+  isCreatingPassword: boolean;
+  isInvitationPasscode?: boolean;
+};
+
 export const SignInUpPasswordField = ({
   showErrors,
-  signInUpMode,
-}: {
-  showErrors: boolean;
-  signInUpMode: SignInUpMode;
-}) => {
-  const { theme } = useContext(ThemeContext);
+  isCreatingPassword,
+  isInvitationPasscode = false,
+}: SignInUpPasswordFieldProps) => {
   const { t } = useLingui();
   const form = useFormContext<Form>();
+  const password = form.watch('password') ?? '';
 
   return (
     <StyledFullWidthMotionDiv
@@ -50,19 +52,32 @@ export const SignInUpPasswordField = ({
               instanceId="sign-in-up-password"
               autoFocus
               value={value}
-              type="password"
-              placeholder={t`Password`}
+              type={isInvitationPasscode ? 'text' : 'password'}
+              inputMode={isInvitationPasscode ? 'numeric' : undefined}
+              autoComplete={
+                isInvitationPasscode ? 'one-time-code' : 'current-password'
+              }
+              maxLength={isInvitationPasscode ? 6 : undefined}
+              aria-label={
+                isInvitationPasscode ? t`Invitation code` : t`Password`
+              }
+              placeholder={
+                isInvitationPasscode
+                  ? t`Enter the 6-digit code sent to your email`
+                  : t`Password`
+              }
               onBlur={onBlur}
-              onChange={onChange}
+              onChange={(newValue) =>
+                onChange(
+                  isInvitationPasscode
+                    ? newValue.replace(/\D/g, '').slice(0, 6)
+                    : newValue,
+                )
+              }
               error={showErrors ? error?.message : undefined}
               fullWidth
             />
-            {signInUpMode === SignInUpMode.SignUp && (
-              <StyledText
-                text={t`At least 8 characters long.`}
-                color={theme.font.color.secondary}
-              />
-            )}
+            {isCreatingPassword && <PasswordRequirements password={password} />}
           </StyledInputContainer>
         )}
       />

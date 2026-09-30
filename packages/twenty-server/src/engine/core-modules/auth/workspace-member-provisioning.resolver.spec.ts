@@ -29,11 +29,14 @@ const WORKSPACE = {
 const createHarness = () => {
   const temporaryPasswordProvisioningService = {
     provisionUserWithTemporaryPassword: jest.fn(),
-    rotateTemporaryPassword: jest.fn(),
+    resendInvitationPasscode: jest.fn(),
   };
   const userWorkspaceService = {
     getWorkspaceMember: jest.fn(),
     checkUserWorkspaceExists: jest.fn(),
+  };
+  const userWorkspaceInactivityService = {
+    reactivateMembership: jest.fn(),
   };
   const roleValidationService = {
     validateRoleAssignableToUsersOrThrow: jest.fn(),
@@ -61,6 +64,7 @@ const createHarness = () => {
   const resolver = new WorkspaceMemberProvisioningResolver(
     temporaryPasswordProvisioningService as never,
     userWorkspaceService as never,
+    userWorkspaceInactivityService as never,
     roleValidationService as never,
     permissionsService as never,
     throttlerService as never,
@@ -72,6 +76,7 @@ const createHarness = () => {
     resolver,
     temporaryPasswordProvisioningService,
     userWorkspaceService,
+    userWorkspaceInactivityService,
     roleValidationService,
     permissionsService,
     throttlerService,
@@ -81,6 +86,127 @@ const createHarness = () => {
 };
 
 describe('WorkspaceMemberProvisioningResolver', () => {
+  describe('reactivateInactiveWorkspaceMember', () => {
+    it('requires workspace-member permission before reactivating', async () => {
+      const harness = createHarness();
+      harness.permissionsService.userHasWorkspaceSettingPermission.mockResolvedValue(
+        false,
+      );
+
+      await expect(
+        harness.resolver.reactivateInactiveWorkspaceMember(
+          'member-id',
+          'caller-user-workspace-id',
+          WORKSPACE as never,
+        ),
+      ).rejects.toThrow(
+        expect.objectContaining({
+          code: PermissionsExceptionCode.PERMISSION_DENIED,
+        }),
+      );
+
+      expect(
+        harness.userWorkspaceInactivityService.reactivateMembership,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('reactivates an existing suspended membership through the existing service', async () => {
+      const harness = createHarness();
+      harness.userWorkspaceService.getWorkspaceMember.mockResolvedValue({
+        id: 'member-id',
+        userId: 'user-id',
+      });
+      harness.userWorkspaceService.checkUserWorkspaceExists.mockResolvedValue({
+        id: 'user-workspace-id',
+        suspendedAt: new Date(),
+      });
+      harness.userWorkspaceInactivityService.reactivateMembership.mockResolvedValue(
+        true,
+      );
+
+      await expect(
+        harness.resolver.reactivateInactiveWorkspaceMember(
+          'member-id',
+          'caller-user-workspace-id',
+          WORKSPACE as never,
+        ),
+      ).resolves.toBe(true);
+
+      expect(
+        harness.userWorkspaceInactivityService.reactivateMembership,
+      ).toHaveBeenCalledWith('user-workspace-id');
+    });
+
+    it('does not mutate an active or missing membership', async () => {
+      const harness = createHarness();
+      harness.userWorkspaceService.getWorkspaceMember.mockResolvedValue({
+        id: 'member-id',
+        userId: 'user-id',
+      });
+      harness.userWorkspaceService.checkUserWorkspaceExists.mockResolvedValue({
+        id: 'user-workspace-id',
+        suspendedAt: null,
+      });
+
+      await expect(
+        harness.resolver.reactivateInactiveWorkspaceMember(
+          'member-id',
+          'caller-user-workspace-id',
+          WORKSPACE as never,
+        ),
+      ).resolves.toBe(false);
+
+      expect(
+        harness.userWorkspaceInactivityService.reactivateMembership,
+      ).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('isWorkspaceMemberSuspended', () => {
+    it('requires workspace-member permission before checking suspension status', async () => {
+      const harness = createHarness();
+      harness.permissionsService.userHasWorkspaceSettingPermission.mockResolvedValue(
+        false,
+      );
+
+      await expect(
+        harness.resolver.isWorkspaceMemberSuspended(
+          'member-id',
+          'caller-user-workspace-id',
+          WORKSPACE as never,
+        ),
+      ).rejects.toThrow(
+        expect.objectContaining({
+          code: PermissionsExceptionCode.PERMISSION_DENIED,
+        }),
+      );
+
+      expect(
+        harness.userWorkspaceService.getWorkspaceMember,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('returns only whether the corresponding membership is suspended', async () => {
+      const harness = createHarness();
+      harness.userWorkspaceService.getWorkspaceMember.mockResolvedValue({
+        id: 'member-id',
+        userId: 'user-id',
+      });
+      harness.userWorkspaceService.checkUserWorkspaceExists.mockResolvedValue({
+        id: 'user-workspace-id',
+        suspendedAt: new Date(),
+      });
+
+      await expect(
+        harness.resolver.isWorkspaceMemberSuspended(
+          'member-id',
+          'caller-user-workspace-id',
+          WORKSPACE as never,
+        ),
+      ).resolves.toBe(true);
+    });
+  });
+
   describe('provisionWorkspaceMember', () => {
     const input = {
       email: ' PERSON@example.com ',
@@ -205,6 +331,29 @@ describe('WorkspaceMemberProvisioningResolver', () => {
         }),
       );
       expect(result).toEqual({ status: ProvisionWorkspaceMemberStatus.READY });
+    });
+
+    it('returns a distinct safe status after a restored member invitation is sent', async () => {
+      const harness = createHarness();
+      harness.temporaryPasswordProvisioningService.provisionUserWithTemporaryPassword.mockResolvedValue(
+        {
+          userId: 'sensitive-user-id',
+          userWasCreated: false,
+          userWasRestored: true,
+          invitationEmail: 'sent',
+          workspaceMembership: 'complete',
+        },
+      );
+
+      await expect(
+        harness.resolver.provisionWorkspaceMember(
+          input,
+          'caller-user-workspace-id',
+          WORKSPACE as never,
+        ),
+      ).resolves.toEqual({
+        status: ProvisionWorkspaceMemberStatus.RESTORED_AND_INVITED,
+      });
     });
 
     it.each([
@@ -333,6 +482,8 @@ describe('WorkspaceMemberProvisioningResolver', () => {
       id: 'user-id',
       disabled: false,
       mustChangePassword: true,
+      passwordHash: null,
+      temporaryPasswordExpiresAt: null,
     };
 
     const setEligibleMember = (harness: ReturnType<typeof createHarness>) => {
@@ -344,13 +495,16 @@ describe('WorkspaceMemberProvisioningResolver', () => {
         id: 'user-workspace-id',
       });
       harness.userRepository.findOne.mockResolvedValue(user);
+      harness.temporaryPasswordProvisioningService.resendInvitationPasscode.mockResolvedValue(
+        { invitationEmail: 'sent' },
+      );
     };
 
     it('scopes the member lookup to the authenticated workspace before resolving its user', async () => {
       const harness = createHarness();
       setEligibleMember(harness);
-      harness.temporaryPasswordProvisioningService.rotateTemporaryPassword.mockResolvedValue(
-        { userId: user.id, credentialEpoch: 5, temporaryPasswordEmail: 'sent' },
+      harness.temporaryPasswordProvisioningService.resendInvitationPasscode.mockResolvedValue(
+        { invitationEmail: 'sent' },
       );
 
       const result = await harness.resolver.resendTemporaryPassword(
@@ -369,8 +523,8 @@ describe('WorkspaceMemberProvisioningResolver', () => {
         where: { id: user.id },
       });
       expect(
-        harness.temporaryPasswordProvisioningService.rotateTemporaryPassword,
-      ).toHaveBeenCalledWith(user.id);
+        harness.temporaryPasswordProvisioningService.resendInvitationPasscode,
+      ).toHaveBeenCalledWith(user.id, WORKSPACE);
       expect(result).toEqual({ status: ResendTemporaryPasswordStatus.SENT });
       expect(Object.keys(result)).toEqual(['status']);
     });
@@ -388,7 +542,7 @@ describe('WorkspaceMemberProvisioningResolver', () => {
       ).resolves.toEqual({ status: ResendTemporaryPasswordStatus.UNAVAILABLE });
       expect(harness.userRepository.findOne).not.toHaveBeenCalled();
       expect(
-        harness.temporaryPasswordProvisioningService.rotateTemporaryPassword,
+        harness.temporaryPasswordProvisioningService.resendInvitationPasscode,
       ).not.toHaveBeenCalled();
     });
 
@@ -415,6 +569,14 @@ describe('WorkspaceMemberProvisioningResolver', () => {
     it.each([
       ['permanent-password user', { ...user, mustChangePassword: false }],
       ['disabled user', { ...user, disabled: true }],
+      [
+        'user with an existing password hash',
+        { ...user, passwordHash: 'hash' },
+      ],
+      [
+        'user with temporary-password expiry state',
+        { ...user, temporaryPasswordExpiresAt: new Date() },
+      ],
     ])(
       'returns unavailable for a %s without rotating',
       async (_name, ineligibleUser) => {
@@ -432,12 +594,12 @@ describe('WorkspaceMemberProvisioningResolver', () => {
           status: ResendTemporaryPasswordStatus.UNAVAILABLE,
         });
         expect(
-          harness.temporaryPasswordProvisioningService.rotateTemporaryPassword,
+          harness.temporaryPasswordProvisioningService.resendInvitationPasscode,
         ).not.toHaveBeenCalled();
       },
     );
 
-    it('requires an active workspace membership and maps uncertain rotation safely', async () => {
+    it('requires an active workspace membership and maps uncertain passcode issuance safely', async () => {
       const harness = createHarness();
       setEligibleMember(harness);
       harness.userWorkspaceService.checkUserWorkspaceExists.mockResolvedValue(
@@ -454,7 +616,7 @@ describe('WorkspaceMemberProvisioningResolver', () => {
       expect(harness.userRepository.findOne).not.toHaveBeenCalled();
 
       setEligibleMember(harness);
-      harness.temporaryPasswordProvisioningService.rotateTemporaryPassword.mockRejectedValue(
+      harness.temporaryPasswordProvisioningService.resendInvitationPasscode.mockRejectedValue(
         new TemporaryPasswordProvisioningException(
           'review_required',
           'unknown',
@@ -475,8 +637,8 @@ describe('WorkspaceMemberProvisioningResolver', () => {
     it('throttles resend by workspace/user and workspace-wide limits', async () => {
       const harness = createHarness();
       setEligibleMember(harness);
-      harness.temporaryPasswordProvisioningService.rotateTemporaryPassword.mockResolvedValue(
-        { userId: user.id, credentialEpoch: 5, temporaryPasswordEmail: 'sent' },
+      harness.temporaryPasswordProvisioningService.resendInvitationPasscode.mockResolvedValue(
+        { invitationEmail: 'sent' },
       );
 
       await harness.resolver.resendTemporaryPassword(

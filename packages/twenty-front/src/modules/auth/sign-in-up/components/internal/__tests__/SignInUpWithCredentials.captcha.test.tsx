@@ -16,6 +16,7 @@ import {
   signInUpStepState,
 } from '@/auth/states/signInUpStepState';
 import { SignInUpMode } from '@/auth/types/signInUpMode';
+import { isInvitationPasscodeModeState } from '@/auth/states/isInvitationPasscodeModeState';
 import { type Form } from '@/auth/sign-in-up/hooks/useSignInUpForm';
 import { captchaTokenState } from '@/captcha/states/captchaTokenState';
 import { isCaptchaScriptLoadedState } from '@/captcha/states/isCaptchaScriptLoadedState';
@@ -35,6 +36,10 @@ jest.mock('@/auth/sign-in-up/hooks/useSignInUp', () => ({
   useSignInUp: jest.fn(),
 }));
 
+jest.mock('twenty-shared/utils', () => ({
+  isDefined: (value: unknown) => value !== undefined && value !== null,
+}));
+
 jest.mock('@/auth/sign-in-up/hooks/useHasMultipleAuthMethods', () => ({
   useHasMultipleAuthMethods: () => false,
 }));
@@ -52,14 +57,23 @@ jest.mock('@/auth/sign-in-up/components/internal/SignInUpEmailField', () => ({
 jest.mock(
   '@/auth/sign-in-up/components/internal/SignInUpPasswordField',
   () => ({
-    SignInUpPasswordField: () => <div>Password entry</div>,
+    SignInUpPasswordField: ({
+      isInvitationPasscode,
+    }: {
+      isInvitationPasscode: boolean;
+    }) => (
+      <div>
+        {isInvitationPasscode ? 'Invitation code entry' : 'Password entry'}
+      </div>
+    ),
   }),
 );
 
 jest.mock('react-hook-form', () => ({
   ...jest.requireActual('react-hook-form'),
   useFormContext: () => ({
-    watch: () => 'person@example.com',
+    watch: (fieldName: string) =>
+      fieldName === 'email' ? 'person@example.com' : '123456',
     getValues: () => 'person@example.com',
     setValue: jest.fn(),
     formState: {
@@ -67,7 +81,13 @@ jest.mock('react-hook-form', () => ({
       isSubmitting: false,
       isValid: true,
     },
-    handleSubmit: jest.fn(() => jest.fn()),
+    handleSubmit: jest.fn(
+      (onValid: (formData: Form) => unknown) => () =>
+        onValid({
+          email: 'person@example.com',
+          password: 'Old-password-123',
+        }),
+    ),
   }),
 }));
 
@@ -147,5 +167,41 @@ describe('SignInUpWithCredentials CAPTCHA placement', () => {
 
     expect(jotaiStore.get(captchaTokenState.atom)).toBe('fresh-response');
     expect(signInButton).toBeEnabled();
+  });
+
+  it('routes a correct expired-password sign-in to the existing reset-link step', async () => {
+    signInUpHandlers.submitCredentials.mockResolvedValueOnce(
+      'password-expired',
+    );
+    jotaiStore.set(signInUpStepState.atom, SignInUpStep.Password);
+    renderForm();
+
+    await waitFor(() => expect(renderMock).toHaveBeenCalledTimes(1));
+    act(() => widgetParameters?.callback('fresh-response'));
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(
+      await screen.findByText(
+        'Your password has expired. Request a reset link to choose a new password.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Send reset link' }),
+    ).toBeInTheDocument();
+  });
+
+  it('switches to invitation-code verification and removes CAPTCHA from the code step', async () => {
+    jotaiStore.set(signInUpStepState.atom, SignInUpStep.Password);
+    renderForm();
+    await waitFor(() => expect(renderMock).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByText('Have an invitation code?'));
+
+    expect(screen.getByText('Invitation code entry')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('group', { name: "I'm not a robot" }),
+    ).not.toBeInTheDocument();
+    expect(renderMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Use your password instead')).toBeInTheDocument();
   });
 });

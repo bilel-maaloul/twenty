@@ -1,10 +1,13 @@
 import {
+  type GetLoginTokenFromCredentialsMutation,
+  type SignInMutation,
   GetAuthTokensFromLoginTokenDocument,
   GetCurrentUserDocument,
   GetLoginTokenFromCredentialsDocument,
   SignInDocument,
   SignUpDocument,
   SignUpInWorkspaceDocument,
+  VerifyFirstPasswordInvitationPasscodeDocument,
 } from '~/generated-metadata/graphql';
 
 export const queries = {
@@ -14,6 +17,8 @@ export const queries = {
   signup: SignUpDocument,
   getCurrentUser: GetCurrentUserDocument,
   signUpInWorkspace: SignUpInWorkspaceDocument,
+  verifyFirstPasswordInvitationPasscode:
+    VerifyFirstPasswordInvitationPasscodeDocument,
 };
 
 export const email = 'test@test.com';
@@ -42,6 +47,11 @@ export const variables = {
     workspacePersonalInviteToken: null,
     locale: 'en',
   },
+  verifyFirstPasswordInvitationPasscode: {
+    email,
+    passcode: '123456',
+    origin,
+  },
   getCurrentUser: {},
 };
 
@@ -49,26 +59,23 @@ export const results = {
   getLoginTokenFromCredentials: {
     __typename: 'LoginToken',
     requiresFirstPasswordCreation: false,
-    loginToken: {
-      __typename: 'AuthToken',
-      token,
-      expiresAt: '2022-01-01',
-    } as { __typename: string; token: string; expiresAt: string } | null,
-  },
+    requiresPasswordReset: false,
+    requiresEmailOtp: false,
+    emailOtpChallengeId: null,
+    loginToken: { __typename: 'AuthToken', token, expiresAt: 'expiresAt' },
+  } as GetLoginTokenFromCredentialsMutation['getLoginTokenFromCredentials'],
   signIn: {
     __typename: 'AvailableWorkspacesAndAccessTokens',
     requiresFirstPasswordCreation: false,
-    availableWorkspaces: {
-      __typename: 'AvailableWorkspaces',
-      availableWorkspacesForSignIn: [],
-      availableWorkspacesForSignUp: [],
-    } as {
-      __typename: string;
-      availableWorkspacesForSignIn: [];
-      availableWorkspacesForSignUp: [];
-    } | null,
-    tokens: null,
-  },
+    requiresPasswordReset: false,
+    requiresEmailOtp: false,
+    emailOtpChallengeId: null,
+    availableWorkspaces: null,
+    tokens: {
+      accessOrWorkspaceAgnosticToken: { token, expiresAt: 'expiresAt' },
+      refreshToken: { token, expiresAt: 'expiresAt' },
+    },
+  } as SignInMutation['signIn'],
   getAuthTokensFromLoginToken: {
     tokens: {
       accessOrWorkspaceAgnosticToken: { token, expiresAt: 'expiresAt' },
@@ -85,6 +92,10 @@ export const results = {
         customUrl: 'https://custom.twenty.com',
       },
     },
+  },
+  verifyFirstPasswordInvitationPasscode: {
+    __typename: 'Mutation',
+    verifyFirstPasswordInvitationPasscode: true,
   },
   getCurrentUser: {
     currentUser: {
@@ -190,6 +201,15 @@ export const mocks = {
       data: {
         signUpInWorkspace: results.signUpInWorkspace,
       },
+    })),
+  },
+  verifyFirstPasswordInvitationPasscode: {
+    request: {
+      query: queries.verifyFirstPasswordInvitationPasscode,
+      variables: variables.verifyFirstPasswordInvitationPasscode,
+    },
+    result: jest.fn(() => ({
+      data: results.verifyFirstPasswordInvitationPasscode,
     })),
   },
 };

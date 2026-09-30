@@ -6,9 +6,12 @@ import { logError } from '~/utils/logError';
 import { isDefined } from 'twenty-shared/utils';
 import formatTitle from './formatTitle';
 
-const containsSensitiveVariable = (value: unknown): boolean => {
+const SENSITIVE_VALUE_KEY_PATTERN =
+  /(password|token|secret|captcha|cookie|authorization|otp|passcode|capability|verification.?code)/i;
+
+const containsSensitiveValue = (value: unknown): boolean => {
   if (Array.isArray(value)) {
-    return value.some(containsSensitiveVariable);
+    return value.some(containsSensitiveValue);
   }
 
   if (value === null || typeof value !== 'object') {
@@ -17,8 +20,8 @@ const containsSensitiveVariable = (value: unknown): boolean => {
 
   return Object.entries(value).some(
     ([key, nestedValue]) =>
-      /(password|captcha.?token)/i.test(key) ||
-      containsSensitiveVariable(nestedValue),
+      SENSITIVE_VALUE_KEY_PATTERN.test(key) ||
+      containsSensitiveValue(nestedValue),
   );
 };
 
@@ -47,13 +50,11 @@ export const loggerLink = (getSchemaName: (operation: Operation) => string) =>
 
     const { variables } = operation;
 
-    if (containsSensitiveVariable(variables)) {
+    if (containsSensitiveValue(variables)) {
       return forward(operation);
     }
 
     const operationType = (operation.query.definitions[0] as any).operation;
-    const headers = operation.getContext().headers;
-
     const [queryName, query] = parseQuery(
       operation.query.loc?.source.body ?? '',
     );
@@ -102,15 +103,13 @@ export const loggerLink = (getSchemaName: (operation: Operation) => string) =>
             });
           }
 
-          logDebug('HEADERS: ', headers);
-
           if (Object.keys(variables).length !== 0) {
             logDebug('VARIABLES', variables);
           }
 
           logDebug('QUERY', query);
 
-          if (isDefined(result.data)) {
+          if (isDefined(result.data) && !containsSensitiveValue(result.data)) {
             logDebug('RESULT', result.data);
           }
           if (isDefined(errors)) {

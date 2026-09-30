@@ -13,6 +13,8 @@ export const GET_AUTH_TOKENS_FROM_OTP = gql`
       captchaToken: $captchaToken
       origin: $origin
     ) {
+      requiresEmailOtp
+      emailOtpChallengeId
       tokens {
         ...AuthTokenPairFragment
       }
