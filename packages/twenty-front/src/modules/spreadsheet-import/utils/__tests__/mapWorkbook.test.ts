@@ -1,4 +1,4 @@
-import { utils } from 'xlsx-ugnis';
+import { read, utils } from 'xlsx-ugnis';
 
 import { mapWorkbook } from '@/spreadsheet-import/utils/mapWorkbook';
 
@@ -42,5 +42,61 @@ describe('mapWorkbook', () => {
     const result = mapWorkbook(inputWorkbook, 'Sheet2');
 
     expect(result).toEqual(expectedOutput);
+  });
+
+  it('reads UTF-8 semicolon-delimited CSV saved by a localized spreadsheet', () => {
+    const csv = '\uFEFFsep=;\r\nCompany;City\r\n"Crème, Inc.";Sfax';
+    const workbook = read(new TextEncoder().encode(csv), {
+      type: 'array',
+      codepage: 65001,
+      dense: true,
+    });
+
+    expect(mapWorkbook(workbook)).toEqual([
+      ['Company', 'City'],
+      ['Crème, Inc.', 'Sfax'],
+    ]);
+  });
+
+  it('removes the Excel separator directive before column mapping', () => {
+    const csv = '\uFEFFsep=,\r\nCompany,City\r\nAcme,Sfax';
+    const workbook = read(new TextEncoder().encode(csv), {
+      type: 'array',
+      codepage: 65001,
+      dense: true,
+    });
+
+    expect(mapWorkbook(workbook)).toEqual([
+      ['Company', 'City'],
+      ['Acme', 'Sfax'],
+    ]);
+  });
+
+  it('reads raw Excel numbers and dates without locale display formatting', () => {
+    const workbook = utils.book_new();
+    const worksheet = utils.aoa_to_sheet([
+      ['Amount', 'Created On'],
+      [1234.56, new Date('2025-02-03T00:00:00.000Z')],
+    ]);
+    const amountCell = worksheet.A2;
+
+    if (amountCell) {
+      amountCell.z = '$#,##0.00';
+      amountCell.t = 'n';
+    }
+
+    const dateCell = worksheet.B2;
+
+    if (dateCell) {
+      dateCell.v = new Date('2025-02-03T00:00:00.000Z');
+      dateCell.t = 'd';
+    }
+
+    utils.book_append_sheet(workbook, worksheet, 'Sheet1');
+
+    expect(mapWorkbook(workbook)).toEqual([
+      ['Amount', 'Created On'],
+      ['1234.56', '2025-02-03T00:00:00.000Z'],
+    ]);
   });
 });

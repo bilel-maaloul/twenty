@@ -10,5 +10,9 @@ export const sanitizeValueForCSVExport = (value: any): string => {
     return CSV_INJECTION_PREVENTION_ZWJ + stringValue;
   }
 
+  if (/^(?:0\d+|\d{16,})$/.test(stringValue)) {
+    return CSV_INJECTION_PREVENTION_ZWJ + stringValue;
+  }
+
   return stringValue;
 };

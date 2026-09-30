@@ -323,6 +323,18 @@ describe('useBuildSpreadSheetImportFields', () => {
           label: 'Emails',
           type: FieldMetadataType.EMAILS,
         }),
+        createMockFieldMetadataItem({
+          id: 'company-domain-field',
+          name: 'domainName',
+          label: 'Domain Name',
+          type: FieldMetadataType.LINKS,
+        }),
+        createMockFieldMetadataItem({
+          id: 'company-category-field',
+          name: 'category',
+          label: 'Category',
+          type: FieldMetadataType.TEXT,
+        }),
       ],
       indexMetadatas: [
         {
@@ -373,6 +385,29 @@ describe('useBuildSpreadSheetImportFields', () => {
             },
           ],
         },
+        {
+          id: 'unique-domain-category-index',
+          name: 'uniqueDomainCategoryIndex',
+          createdAt: '2023-01-01',
+          updatedAt: '2023-01-01',
+          isUnique: true,
+          indexFieldMetadatas: [
+            {
+              id: 'index-field-4',
+              fieldMetadataId: 'company-domain-field',
+              createdAt: '2023-01-01',
+              updatedAt: '2023-01-01',
+              order: 0,
+            },
+            {
+              id: 'index-field-5',
+              fieldMetadataId: 'company-category-field',
+              createdAt: '2023-01-01',
+              updatedAt: '2023-01-01',
+              order: 1,
+            },
+          ],
+        },
       ] as IndexMetadataItem[],
     });
 
@@ -409,7 +444,12 @@ describe('useBuildSpreadSheetImportFields', () => {
     const spreadsheetImportFields =
       result.current.buildSpreadsheetImportFields(fieldMetadataItems);
 
-    expect(spreadsheetImportFields).toHaveLength(4);
+    expect(spreadsheetImportFields).toHaveLength(3);
+    expect(
+      spreadsheetImportFields.filter((field) =>
+        field.key.includes('id (company)'),
+      ),
+    ).toHaveLength(1);
 
     const idField = spreadsheetImportFields.find((field) =>
       field.key.includes('id (company)'),
@@ -462,5 +502,13 @@ describe('useBuildSpreadSheetImportFields', () => {
         type: FieldMetadataType.EMAILS,
       },
     });
+
+    expect(
+      spreadsheetImportFields.some(
+        (field) =>
+          field.key.includes('domainName (company)') ||
+          field.key.includes('category (company)'),
+      ),
+    ).toBe(false);
   });
 });

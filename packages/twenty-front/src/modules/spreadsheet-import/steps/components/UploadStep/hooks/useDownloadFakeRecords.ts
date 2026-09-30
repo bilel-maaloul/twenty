@@ -79,7 +79,7 @@ export const useDownloadFakeRecords = () => {
         }
 
         case FieldMetadataType.RELATION: {
-          headerRow.push(`${field.label} (ID)`);
+          headerRow.push(`${field.label} / ID`);
 
           const exampleValues =
             SETTINGS_NON_COMPOSITE_FIELD_TYPE_CONFIGS[FieldMetadataType.UUID]
@@ -130,14 +130,16 @@ export const useDownloadFakeRecords = () => {
       });
     });
 
-    const csvContent = escapedRows.map((row) => row.join(',')).join('\n');
+    const csvContent = `\uFEFFsep=,\r\n${escapedRows
+      .map((row) => row.join(','))
+      .join('\r\n')}`;
     return [csvContent];
   };
 
   const downloadSample = () => {
     const { headerRow, bodyRows } = buildTableWithFakeRecords();
     const csvContent = formatToCsvContent([headerRow, ...bodyRows]);
-    const blob = new Blob(csvContent, { type: 'text/csv' });
+    const blob = new Blob(csvContent, { type: 'text/csv;charset=utf-8' });
     saveAs(blob, `${objectMetadataItem.labelPlural.toLowerCase()}-sample.csv`);
   };
 

@@ -59,10 +59,6 @@ export const spreadsheetImportGetUnicityTableHook = (
       }),
     );
   const tableHook: SpreadsheetImportTableHook = (table, addError) => {
-    if (uniqueConstraintsFields.length === 0) {
-      return table;
-    }
-
     for (const uniqueConstraint of uniqueConstraintsWithColumnNames) {
       const uniqueValues: Record<string, number> = {};
       const duplicateIndices: Set<number> = new Set();
@@ -92,6 +88,37 @@ export const spreadsheetImportGetUnicityTableHook = (
         });
       });
     }
+
+    const rowIndexByContent = new Map<string, number>();
+
+    table.forEach((row, index) => {
+      const rowEntries = Object.entries(row)
+        .filter(([, value]) => isDefined(value) && value !== '')
+        .sort(([fieldNameA], [fieldNameB]) =>
+          fieldNameA.localeCompare(fieldNameB),
+        );
+
+      if (rowEntries.length === 0) {
+        return;
+      }
+
+      const rowContent = JSON.stringify(rowEntries);
+      const duplicateRowIndex = rowIndexByContent.get(rowContent);
+
+      if (isDefined(duplicateRowIndex)) {
+        const fieldName = rowEntries[0][0];
+        const error = {
+          message: 'This row duplicates another row in your import data',
+          level: 'error' as const,
+        };
+
+        addError(duplicateRowIndex, fieldName, error);
+        addError(index, fieldName, error);
+        return;
+      }
+
+      rowIndexByContent.set(rowContent, index);
+    });
 
     return table;
   };

@@ -182,4 +182,28 @@ describe('spreadsheetImportGetUnicityTableHook', () => {
     expect(addErrorMock).not.toHaveBeenCalled();
     expect(result).toBe(testData);
   });
+
+  it('marks exact duplicate rows even when the object has no unique business fields', () => {
+    const hook = spreadsheetImportGetUnicityTableHook({
+      ...baseMockCompany,
+      indexMetadatas: [],
+    });
+    const testData: ImportedStructuredRow[] = [
+      { city: 'Sfax', company: 'Acme' },
+      { city: 'Sfax', company: 'Acme' },
+    ];
+    const addErrorMock = jest.fn();
+
+    const result = hook(testData, addErrorMock);
+
+    expect(addErrorMock).toHaveBeenCalledWith(0, 'city', {
+      message: 'This row duplicates another row in your import data',
+      level: 'error',
+    });
+    expect(addErrorMock).toHaveBeenCalledWith(1, 'city', {
+      message: 'This row duplicates another row in your import data',
+      level: 'error',
+    });
+    expect(result).toBe(testData);
+  });
 });

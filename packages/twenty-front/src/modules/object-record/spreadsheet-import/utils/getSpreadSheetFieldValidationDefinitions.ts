@@ -1,9 +1,16 @@
 import { isFieldRatingValue } from '@/object-record/record-field/ui/types/guards/isFieldRatingValue';
+import { parseAdditionalPhonesFromCSV } from '@/spreadsheet-import/utils/formatAdditionalPhonesForCSV';
+import { parseLinksFromCSV } from '@/spreadsheet-import/utils/formatLinksForCSV';
+import { parseSpreadsheetNumber } from '@/spreadsheet-import/utils/parseSpreadsheetNumber';
+import {
+  parseDateTimeFromCSV,
+  parseStringArrayFromCSV,
+} from '@/spreadsheet-import/utils/spreadsheetValueFormats';
 import { type SpreadsheetImportFieldValidationDefinition } from '@/spreadsheet-import/types';
 import { t } from '@lingui/core/macro';
 import { isDate, isString } from '@sniptt/guards';
 import { parsePhoneNumberWithError } from 'libphonenumber-js';
-import { RATING_VALUES } from 'twenty-shared/constants';
+import { CurrencyCode, RATING_VALUES } from 'twenty-shared/constants';
 import {
   absoluteUrlSchema,
   isValidDomain,
@@ -20,8 +27,8 @@ const getNumberValidationDefinition = (
   fieldName: string,
 ): SpreadsheetImportFieldValidationDefinition => ({
   rule: 'function',
-  isValid: (value: string) => !isNaN(+value),
-  errorMessage: `${fieldName} ${t`must be a number`}`,
+  isValid: (value: string) => parseSpreadsheetNumber(value) !== undefined,
+  errorMessage: `${fieldName} ${t`must be a number with unambiguous separators`}`,
   level: 'error',
 });
 
@@ -67,6 +74,18 @@ export const getSpreadSheetFieldValidationDefinitions = (
       switch (subFieldKey) {
         case 'amountMicros':
           return [getNumberValidationDefinition(fieldName)];
+        case 'currencyCode':
+          return [
+            {
+              rule: 'function',
+              isValid: (value: string) =>
+                Object.values(CurrencyCode).includes(
+                  value.toUpperCase() as CurrencyCode,
+                ),
+              errorMessage: `${fieldName} ${t`is not a valid currency code`}`,
+              level: 'error',
+            },
+          ];
         default:
           return [];
       }
@@ -88,7 +107,7 @@ export const getSpreadSheetFieldValidationDefinitions = (
               isValid: (stringifiedAdditionalEmails: string) => {
                 if (!isDefined(stringifiedAdditionalEmails)) return true;
                 try {
-                  const additionalEmails = JSON.parse(
+                  const additionalEmails = parseStringArrayFromCSV(
                     stringifiedAdditionalEmails,
                   );
                   return additionalEmails.every(
@@ -126,8 +145,10 @@ export const getSpreadSheetFieldValidationDefinitions = (
               isValid: (stringifiedSecondaryLinks: string) => {
                 if (!isDefined(stringifiedSecondaryLinks)) return true;
                 try {
-                  const secondaryLinks = JSON.parse(stringifiedSecondaryLinks);
-                  return secondaryLinks.every((link: { url: string }) => {
+                  const secondaryLinks = parseLinksFromCSV(
+                    stringifiedSecondaryLinks,
+                  );
+                  return secondaryLinks.every((link) => {
                     if (!isDefined(link.url)) return true;
                     return isValidLinkUrl(link.url);
                   });
@@ -148,7 +169,7 @@ export const getSpreadSheetFieldValidationDefinitions = (
         {
           rule: 'function',
           isValid: (value: string) => {
-            const date = new Date(value);
+            const date = new Date(parseDateTimeFromCSV(value));
             return isDate(date) && !isNaN(date.getTime());
           },
           errorMessage: `${fieldName} ${t`is not a valid date time (format: '2021-12-01T00:00:00Z')`}`,
@@ -203,7 +224,7 @@ export const getSpreadSheetFieldValidationDefinitions = (
               isValid: (stringifiedAdditionalPhones: string) => {
                 if (!isDefined(stringifiedAdditionalPhones)) return true;
                 try {
-                  const additionalPhones = JSON.parse(
+                  const additionalPhones = parseAdditionalPhonesFromCSV(
                     stringifiedAdditionalPhones,
                   );
                   return additionalPhones.every(
@@ -249,11 +270,8 @@ export const getSpreadSheetFieldValidationDefinitions = (
           rule: 'function',
           isValid: (value: string) => {
             try {
-              const parsedValue = JSON.parse(value);
-              return (
-                Array.isArray(parsedValue) &&
-                parsedValue.every((item: any) => isString(item))
-              );
+              const parsedValue = parseStringArrayFromCSV(value);
+              return Array.isArray(parsedValue) && parsedValue.every(isString);
             } catch {
               return false;
             }
