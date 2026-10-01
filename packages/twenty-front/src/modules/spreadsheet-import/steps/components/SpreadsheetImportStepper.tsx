@@ -96,6 +96,7 @@ export const SpreadsheetImportStepper = ({
           setCurrentStepState={setCurrentStepState}
           setPreviousStepState={setPreviousStepState}
           currentStepState={currentStepState}
+          headerValidationErrors={currentStepState.headerValidationErrors}
           nextStep={nextStep}
           onBack={handleBack}
           onError={handleError}

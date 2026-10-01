@@ -6,4 +6,5 @@ export enum SpreadsheetColumnType {
   matchedSelect,
   matchedSelectOptions,
   matchedError,
+  recognizedReadOnly,
 }

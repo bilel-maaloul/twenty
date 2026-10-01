@@ -1,6 +1,7 @@
 import { type FieldMetadataItem } from '@/object-metadata/types/FieldMetadataItem';
 import { type SpreadsheetColumns } from '@/spreadsheet-import/types/SpreadsheetColumns';
 import { type SpreadsheetImportFields } from '@/spreadsheet-import/types/SpreadsheetImportFields';
+import { type SpreadsheetImportHeaderDefinition } from '@/spreadsheet-import/types/SpreadsheetImportHeaderDefinition';
 import { type SpreadsheetImportImportValidationResult } from '@/spreadsheet-import/types/SpreadsheetImportImportValidationResult';
 import { type ImportedRow } from '@/spreadsheet-import/types/SpreadsheetImportImportedRow';
 import { type ImportedStructuredRow } from '@/spreadsheet-import/types/SpreadsheetImportImportedStructuredRow';
@@ -43,6 +44,7 @@ export type SpreadsheetImportDialogOptions = {
   autoMapHeaders?: boolean;
   // Headers matching accuracy: 1 for strict and up for more flexible matching
   autoMapDistance?: number;
+  spreadsheetImportHeaderDefinitions?: SpreadsheetImportHeaderDefinition[];
   initialStepState?: SpreadsheetImportStep;
   // Sets SheetJS dateNF option. If date parsing is applied, date will be formatted e.g. "yyyy-mm-dd hh:mm:ss", "m/d/yy h:mm", 'mmm-yy', etc.
   dateFormat?: string;

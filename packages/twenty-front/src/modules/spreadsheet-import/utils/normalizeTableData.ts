@@ -98,6 +98,9 @@ export const normalizeTableData = (
         case SpreadsheetColumnType.ignored: {
           return acc;
         }
+        case SpreadsheetColumnType.recognizedReadOnly: {
+          return acc;
+        }
         default:
           return acc;
       }

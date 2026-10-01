@@ -3,6 +3,10 @@ export type { SpreadsheetImportErrorLevel } from './SpreadsheetImportErrorLevel'
 export type { SpreadsheetImportField } from './SpreadsheetImportField';
 export type { SpreadsheetImportFields } from './SpreadsheetImportFields';
 export type {
+  SpreadsheetImportHeaderDefinition,
+  SpreadsheetImportHeaderDefinitionKind,
+} from './SpreadsheetImportHeaderDefinition';
+export type {
   SpreadsheetImportCheckbox,
   SpreadsheetImportFieldType,
   SpreadsheetImportInput,

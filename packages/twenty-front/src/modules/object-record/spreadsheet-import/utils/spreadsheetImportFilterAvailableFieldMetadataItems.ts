@@ -10,6 +10,8 @@ export const spreadsheetImportFilterAvailableFieldMetadataItems = (
     .filter(
       (fieldMetadataItem) =>
         fieldMetadataItem.isActive &&
+        (fieldMetadataItem.name === 'id' ||
+          fieldMetadataItem.isUIEditable !== false) &&
         (!isHiddenSystemField(fieldMetadataItem) ||
           fieldMetadataItem.name === 'id') &&
         fieldMetadataItem.name !== 'deletedAt' &&

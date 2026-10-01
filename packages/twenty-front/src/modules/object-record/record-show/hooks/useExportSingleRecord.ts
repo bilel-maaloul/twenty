@@ -53,6 +53,11 @@ export const useExportSingleRecord = ({
 
   const columns = getSpreadsheetExportColumnDefinitions(
     objectMetadataItem.fields.filter((field) => field.isActive),
+    {
+      headerDisambiguationFieldMetadataItems: objectMetadataItem.fields.filter(
+        (field) => field.isActive,
+      ),
+    },
   );
   const { record, error } = useFindOneRecord({
     objectNameSingular: objectMetadataItem.nameSingular,

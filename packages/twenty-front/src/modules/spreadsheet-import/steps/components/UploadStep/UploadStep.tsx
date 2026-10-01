@@ -9,6 +9,7 @@ import { useSpreadsheetImportInternal } from '@/spreadsheet-import/hooks/useSpre
 import { type SpreadsheetImportStep } from '@/spreadsheet-import/steps/types/SpreadsheetImportStep';
 import { SpreadsheetImportStepType } from '@/spreadsheet-import/steps/types/SpreadsheetImportStepType';
 import { exceedsMaxRecords } from '@/spreadsheet-import/utils/exceedsMaxRecords';
+import { getSpreadsheetImportHeaderValidationErrorMessage } from '@/spreadsheet-import/utils/getStrictMatchedColumns';
 import { mapWorkbook } from '@/spreadsheet-import/utils/mapWorkbook';
 import { DropZone } from './components/DropZone';
 
@@ -63,15 +64,30 @@ export const UploadStep = ({
             const { importedRows: data, headerRow: headerValues } =
               await selectHeaderStepHook(mappedWorkbook[0], trimmedData);
 
-            await computeColumnSuggestionsAndAutoMatch({
-              headerValues,
-              data,
-            });
+            const headerValidation = await computeColumnSuggestionsAndAutoMatch(
+              {
+                headerValues: headerValues ?? [],
+                data,
+              },
+            );
+
+            if (
+              headerValidation &&
+              headerValidation.recognizedColumnCount === 0
+            ) {
+              onError(
+                getSpreadsheetImportHeaderValidationErrorMessage(
+                  headerValidation,
+                ),
+              );
+              return;
+            }
 
             setCurrentStepState({
               type: SpreadsheetImportStepType.matchColumns,
               data,
-              headerValues,
+              headerValues: headerValues ?? [],
+              headerValidationErrors: headerValidation?.errors,
             });
           }
         } catch (e) {
