@@ -4,6 +4,12 @@ import { getCompositeSubFieldKey } from '@/object-record/spreadsheet-import/util
 import { getSpreadsheetImportHeaderDefinitions } from '@/object-record/spreadsheet-import/utils/getSpreadsheetImportHeaderDefinitions';
 import { type SpreadsheetImportField } from '@/spreadsheet-import/types/SpreadsheetImportField';
 import { validateSpreadsheetImportHeaders } from '@/spreadsheet-import/utils/validateSpreadsheetImportHeaders';
+import {
+  getSpreadsheetExportColumns,
+  getSpreadsheetExportHeader,
+} from '@/spreadsheet/utils/getSpreadsheetExportData';
+import { getSpreadsheetExportColumnDefinitions } from '@/spreadsheet/utils/getSpreadsheetExportColumnDefinitions';
+import { getSpreadsheetExportFieldMetadataItems } from '@/spreadsheet/utils/getSpreadsheetExportFieldMetadataItems';
 import { FieldMetadataType, RelationType } from '~/generated-metadata/graphql';
 
 jest.mock(
@@ -404,5 +410,332 @@ describe('getSpreadsheetImportHeaderDefinitions', () => {
         ),
       ).missingHeaders,
     ).toEqual(['Record ID', 'Name', 'Account Owner']);
+  });
+
+  it('uses the actual visible export fields as the strict import schema', () => {
+    const recordIdField = createFieldMetadata({
+      id: 'company-record-id',
+      name: 'id',
+      label: 'Id',
+      type: FieldMetadataType.UUID,
+      isSystem: true,
+      isUIEditable: false,
+    });
+    const nameField = createFieldMetadata({
+      id: 'company-name',
+      name: 'name',
+      label: 'Name',
+      isSystem: false,
+      isUIEditable: true,
+    });
+    const domainField = createFieldMetadata({
+      id: 'company-domain',
+      name: 'domainName',
+      label: 'Domain Name',
+      type: FieldMetadataType.LINKS,
+      isSystem: false,
+      isUIEditable: true,
+    });
+    const addressField = createFieldMetadata({
+      id: 'company-address',
+      name: 'address',
+      label: 'Address',
+      type: FieldMetadataType.ADDRESS,
+      isSystem: false,
+      isUIEditable: true,
+    });
+    const accountOwnerField = createFieldMetadata({
+      id: 'company-account-owner',
+      name: 'accountOwner',
+      label: 'Account Owner',
+      type: FieldMetadataType.RELATION,
+      isSystem: false,
+      isUIEditable: true,
+      relation: {
+        type: RelationType.MANY_TO_ONE,
+        targetObjectMetadata: { id: 'workspace-member-object' },
+      } as FieldMetadataItem['relation'],
+    });
+    const createdByField = createFieldMetadata({
+      id: 'company-created-by',
+      name: 'createdBy',
+      label: 'Created by',
+      type: FieldMetadataType.ACTOR,
+      isSystem: true,
+      isUIEditable: false,
+    });
+    const createdAtField = createFieldMetadata({
+      id: 'company-created-at',
+      name: 'createdAt',
+      label: 'Creation date',
+      type: FieldMetadataType.DATE_TIME,
+      isSystem: true,
+      isUIEditable: false,
+    });
+    const employeesField = createFieldMetadata({
+      id: 'company-employees',
+      name: 'employees',
+      label: 'Employees',
+      type: FieldMetadataType.NUMBER,
+      isSystem: false,
+      isUIEditable: true,
+    });
+    const linkedinField = createFieldMetadata({
+      id: 'company-linkedin',
+      name: 'linkedinLink',
+      label: 'Linkedin',
+      type: FieldMetadataType.LINKS,
+      isSystem: false,
+      isUIEditable: true,
+    });
+    const customField = createFieldMetadata({
+      id: 'company-custom',
+      name: 'customField',
+      label: 'Custom Field',
+      isSystem: false,
+      isUIEditable: true,
+    });
+    const annualRecurringRevenueField = createFieldMetadata({
+      id: 'company-arr',
+      name: 'annualRecurringRevenue',
+      label: 'ARR',
+      type: FieldMetadataType.CURRENCY,
+      isSystem: false,
+      isUIEditable: true,
+    });
+    const internalFields = [
+      createFieldMetadata({
+        id: 'company-updated-at',
+        name: 'updatedAt',
+        label: 'Last update',
+        type: FieldMetadataType.DATE_TIME,
+        isSystem: true,
+        isUIEditable: false,
+      }),
+      createFieldMetadata({
+        id: 'company-deleted-at',
+        name: 'deletedAt',
+        label: 'Deleted at',
+        type: FieldMetadataType.DATE_TIME,
+        isSystem: true,
+        isUIEditable: false,
+      }),
+      createFieldMetadata({
+        id: 'company-position',
+        name: 'position',
+        label: 'Position',
+        type: FieldMetadataType.POSITION,
+        isSystem: true,
+        isUIEditable: true,
+      }),
+      createFieldMetadata({
+        id: 'company-updated-by',
+        name: 'updatedBy',
+        label: 'Updated by',
+        type: FieldMetadataType.ACTOR,
+        isSystem: true,
+        isUIEditable: false,
+      }),
+      createFieldMetadata({
+        id: 'company-search-vector',
+        name: 'searchVector',
+        label: 'Search vector',
+        type: FieldMetadataType.TS_VECTOR,
+        isSystem: true,
+        isUIEditable: true,
+      }),
+    ];
+    const companyFields = [
+      recordIdField,
+      nameField,
+      domainField,
+      addressField,
+      accountOwnerField,
+      createdByField,
+      createdAtField,
+      employeesField,
+      linkedinField,
+      customField,
+      annualRecurringRevenueField,
+      ...internalFields,
+    ];
+    const companyMetadata = createObjectMetadata({
+      id: 'company-object',
+      fields: companyFields,
+      readableFields: companyFields,
+      labelIdentifierFieldMetadataId: nameField.id,
+    });
+    const workspaceMemberNameField = createFieldMetadata({
+      id: 'workspace-member-name',
+      name: 'name',
+      label: 'Name',
+      isSystem: false,
+      isUIEditable: true,
+    });
+    const workspaceMemberMetadata = createObjectMetadata({
+      id: 'workspace-member-object',
+      fields: [workspaceMemberNameField],
+      labelIdentifierFieldMetadataId: workspaceMemberNameField.id,
+    });
+    const visibleRecordFields = [
+      nameField,
+      domainField,
+      createdByField,
+      accountOwnerField,
+      createdAtField,
+      employeesField,
+      linkedinField,
+      addressField,
+      customField,
+    ].map((fieldMetadataItem, position) => ({
+      fieldMetadataItemId: fieldMetadataItem.id,
+      id: `view-field-${position}`,
+      isVisible: true,
+      position,
+      size: 150,
+    }));
+    const exportFieldMetadataItems = getSpreadsheetExportFieldMetadataItems({
+      objectMetadataItem: companyMetadata,
+      recordFields: visibleRecordFields,
+    });
+    const exportColumns = getSpreadsheetExportColumns(
+      getSpreadsheetExportColumnDefinitions(exportFieldMetadataItems),
+    );
+    const importFields = [
+      createImportField({
+        key: 'id',
+        fieldMetadataItemId: recordIdField.id,
+        fieldMetadataType: FieldMetadataType.UUID,
+      }),
+      ...[nameField, employeesField, customField].map((fieldMetadataItem) =>
+        createImportField({
+          key: fieldMetadataItem.name,
+          fieldMetadataItemId: fieldMetadataItem.id,
+          fieldMetadataType: fieldMetadataItem.type,
+          label: fieldMetadataItem.label,
+        }),
+      ),
+      ...[domainField, linkedinField].flatMap((fieldMetadataItem) =>
+        ['primaryLinkLabel', 'primaryLinkUrl', 'secondaryLinks'].map(
+          (subFieldName) =>
+            createImportField({
+              fieldMetadataItemId: fieldMetadataItem.id,
+              fieldMetadataType: fieldMetadataItem.type,
+              isNestedField: true,
+              isCompositeSubField: true,
+              compositeSubFieldKey: subFieldName,
+              key: getCompositeSubFieldKey(fieldMetadataItem, subFieldName),
+            }),
+        ),
+      ),
+      ...[
+        'addressStreet1',
+        'addressStreet2',
+        'addressCity',
+        'addressState',
+        'addressCountry',
+        'addressPostcode',
+        'addressLat',
+        'addressLng',
+      ].map((subFieldName) =>
+        createImportField({
+          fieldMetadataItemId: addressField.id,
+          fieldMetadataType: addressField.type,
+          isNestedField: true,
+          isCompositeSubField: true,
+          compositeSubFieldKey: subFieldName,
+          key: getCompositeSubFieldKey(addressField, subFieldName),
+        }),
+      ),
+      createImportField({
+        fieldMetadataItemId: accountOwnerField.id,
+        fieldMetadataType: FieldMetadataType.RELATION,
+        isNestedField: true,
+        isRelationConnectField: true,
+        key: 'name (accountOwner)',
+        uniqueFieldMetadataItem: workspaceMemberNameField,
+      }),
+      createImportField({
+        fieldMetadataItemId: accountOwnerField.id,
+        fieldMetadataType: FieldMetadataType.RELATION,
+        isNestedField: true,
+        isRelationConnectField: true,
+        key: 'id (accountOwner)',
+        uniqueFieldMetadataItem: recordIdField,
+      }),
+    ];
+    const definitions = getSpreadsheetImportHeaderDefinitions({
+      fieldMetadataItems: exportFieldMetadataItems,
+      objectMetadataItems: [companyMetadata, workspaceMemberMetadata],
+      spreadsheetImportFields: importFields,
+    });
+    const expectedHeaders = definitions.map(({ header }) => header);
+    const exportHeaders = exportColumns.map(getSpreadsheetExportHeader);
+
+    expect(expectedHeaders).toEqual(exportHeaders);
+    expect(expectedHeaders).toEqual(
+      expect.arrayContaining([
+        'Record ID',
+        'Name',
+        'Domain Name / Link URL',
+        'City',
+        'Account Owner',
+        'ID of Account Owner',
+        'Custom Field',
+      ]),
+    );
+    expect(expectedHeaders).not.toEqual(
+      expect.arrayContaining([
+        'Last update',
+        'Deleted at',
+        'Amount',
+        'Currency',
+        'Position',
+        'Updated by',
+        'Search vector',
+      ]),
+    );
+
+    const validateHeaders = (headers: string[], values = headers) =>
+      validateSpreadsheetImportHeaders({
+        data: [values],
+        fieldKeys: new Set(importFields.map(({ key }) => key)),
+        headerDefinitions: definitions,
+        headerValues: headers,
+      });
+
+    expect(validateHeaders(expectedHeaders).missingHeaders).toEqual([]);
+    expect(
+      validateHeaders([...expectedHeaders].reverse()).missingHeaders,
+    ).toEqual([]);
+    expect(
+      validateHeaders(
+        expectedHeaders,
+        expectedHeaders.map(() => ''),
+      ).errors,
+    ).toEqual([]);
+    expect(
+      validateHeaders(expectedHeaders.filter((header) => header !== 'Name'))
+        .missingHeaders,
+    ).toEqual(['Name']);
+    expect(
+      validateHeaders(
+        expectedHeaders.filter((header) => header !== 'Record ID'),
+      ).missingHeaders,
+    ).toEqual(['Record ID']);
+    expect(
+      validateHeaders(
+        expectedHeaders.filter((header) => header !== 'Account Owner'),
+      ).missingHeaders,
+    ).toEqual(['Account Owner']);
+    expect(
+      validateHeaders(
+        expectedHeaders.filter((header) => header !== 'Domain Name / Link URL'),
+      ).missingHeaders,
+    ).toEqual(['Domain Name / Link URL']);
+    expect(
+      validateHeaders(expectedHeaders.filter((header) => header !== 'City'))
+        .missingHeaders,
+    ).toEqual(['City']);
   });
 });

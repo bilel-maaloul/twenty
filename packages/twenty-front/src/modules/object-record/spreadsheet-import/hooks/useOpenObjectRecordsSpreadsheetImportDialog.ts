@@ -8,12 +8,15 @@ import { buildRecordFromImportedStructuredRow } from '@/object-record/spreadshee
 import { getSpreadsheetImportHeaderDefinitions } from '@/object-record/spreadsheet-import/utils/getSpreadsheetImportHeaderDefinitions';
 import { spreadsheetImportFilterAvailableFieldMetadataItems } from '@/object-record/spreadsheet-import/utils/spreadsheetImportFilterAvailableFieldMetadataItems';
 import { spreadsheetImportGetUnicityTableHook } from '@/object-record/spreadsheet-import/utils/spreadsheetImportGetUnicityTableHook';
+import { getSpreadsheetExportFieldMetadataItems } from '@/spreadsheet/utils/getSpreadsheetExportFieldMetadataItems';
 import { SPREADSHEET_IMPORT_CREATE_RECORDS_BATCH_SIZE } from '@/spreadsheet-import/constants/SpreadsheetImportCreateRecordsBatchSize';
 import { useOpenSpreadsheetImportDialog } from '@/spreadsheet-import/hooks/useOpenSpreadsheetImportDialog';
 import { spreadsheetImportCreatedRecordsProgressState } from '@/spreadsheet-import/states/spreadsheetImportCreatedRecordsProgressState';
 import { type SpreadsheetImportDialogOptions } from '@/spreadsheet-import/types';
 import { useSnackBar } from '@/ui/feedback/snack-bar-manager/hooks/useSnackBar';
 import { useSetAtomState } from '@/ui/utilities/state/jotai/hooks/useSetAtomState';
+import { useGetCurrentViewOnly } from '@/views/hooks/useGetCurrentViewOnly';
+import { isDefined } from 'twenty-shared/utils';
 
 export const useOpenObjectRecordsSpreadsheetImportDialog = (
   objectNameSingular: string,
@@ -28,6 +31,20 @@ export const useOpenObjectRecordsSpreadsheetImportDialog = (
     objectNameSingular,
   });
   const { objectMetadataItems } = useObjectMetadataItems();
+  const { currentView } = useGetCurrentViewOnly();
+
+  const spreadsheetExportFieldMetadataItems =
+    isDefined(currentView) &&
+    currentView.objectMetadataId === objectMetadataItem.id
+      ? getSpreadsheetExportFieldMetadataItems({
+          objectMetadataItem,
+          recordFields: currentView.viewFields.map((viewField) => ({
+            fieldMetadataItemId: viewField.fieldMetadataId,
+            isVisible: viewField.isVisible,
+            position: viewField.position,
+          })),
+        })
+      : getSpreadsheetExportFieldMetadataItems({ objectMetadataItem });
 
   const setSpreadsheetImportCreatedRecordsProgress = useSetAtomState(
     spreadsheetImportCreatedRecordsProgressState,
@@ -75,7 +92,7 @@ export const useOpenObjectRecordsSpreadsheetImportDialog = (
     );
     const spreadsheetImportHeaderDefinitions =
       getSpreadsheetImportHeaderDefinitions({
-        fieldMetadataItems: objectMetadataItem.readableFields,
+        fieldMetadataItems: spreadsheetExportFieldMetadataItems,
         objectMetadataItems,
         spreadsheetImportFields,
       });

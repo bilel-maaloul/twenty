@@ -7,6 +7,7 @@ import { csvDownloader } from '@/object-record/record-index/export/hooks/useReco
 import { type ObjectRecord } from '@/object-record/types/ObjectRecord';
 import { type SpreadsheetExportFormat } from '@/spreadsheet/types/SpreadsheetExportFormat';
 import { getSpreadsheetExportColumnDefinitions } from '@/spreadsheet/utils/getSpreadsheetExportColumnDefinitions';
+import { getSpreadsheetExportFieldMetadataItems } from '@/spreadsheet/utils/getSpreadsheetExportFieldMetadataItems';
 import { xlsxDownloader } from '@/spreadsheet/utils/generateXlsxExport';
 import { isDefined } from 'twenty-shared/utils';
 
@@ -51,12 +52,13 @@ export const useExportSingleRecord = ({
     [filename, format, processRecordsForCSVExport],
   );
 
+  const exportFieldMetadataItems = getSpreadsheetExportFieldMetadataItems({
+    objectMetadataItem,
+  });
   const columns = getSpreadsheetExportColumnDefinitions(
-    objectMetadataItem.fields.filter((field) => field.isActive),
+    exportFieldMetadataItems,
     {
-      headerDisambiguationFieldMetadataItems: objectMetadataItem.fields.filter(
-        (field) => field.isActive,
-      ),
+      headerDisambiguationFieldMetadataItems: exportFieldMetadataItems,
     },
   );
   const { record, error } = useFindOneRecord({
