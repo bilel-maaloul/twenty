@@ -25,6 +25,7 @@ export type SpreadsheetImportHeaderMatch = {
 export type StrictSpreadsheetImportHeaderValidationResult = {
   errors: SpreadsheetImportHeaderValidationError[];
   matches: SpreadsheetImportHeaderMatch[];
+  missingHeaders: string[];
   meaningfulColumnCount: number;
   recognizedColumnCount: number;
 };
@@ -99,6 +100,7 @@ export const validateSpreadsheetImportHeaders = ({
   const errors: SpreadsheetImportHeaderValidationError[] = [];
   const matches: SpreadsheetImportHeaderMatch[] = [];
   const usedFieldKeys = new Set<string>();
+  const actualValidHeaders = new Set<string>();
   let meaningfulColumnCount = 0;
   let recognizedColumnCount = 0;
 
@@ -156,6 +158,7 @@ export const validateSpreadsheetImportHeaders = ({
 
     if (matchingDefinition.kind === 'readOnly') {
       recognizedColumnCount += 1;
+      actualValidHeaders.add(normalizedHeader);
       matches.push({
         columnIndex,
         header: importedHeader,
@@ -182,6 +185,7 @@ export const validateSpreadsheetImportHeaders = ({
 
     usedFieldKeys.add(fieldKey);
     recognizedColumnCount += 1;
+    actualValidHeaders.add(normalizedHeader);
     matches.push({
       columnIndex,
       fieldKey,
@@ -190,9 +194,21 @@ export const validateSpreadsheetImportHeaders = ({
     });
   }
 
+  const expectedHeaders = Array.from(
+    new Set(
+      headerDefinitions
+        .map(({ header }) => normalizeSpreadsheetImportHeader(header))
+        .filter((header) => header !== ''),
+    ),
+  );
+  const missingHeaders = expectedHeaders.filter(
+    (header) => !actualValidHeaders.has(header),
+  );
+
   return {
     errors,
     matches,
+    missingHeaders,
     meaningfulColumnCount,
     recognizedColumnCount,
   };
@@ -201,6 +217,23 @@ export const validateSpreadsheetImportHeaders = ({
 export const getSpreadsheetImportHeaderValidationErrorMessage = (
   result: StrictSpreadsheetImportHeaderValidationResult,
 ): string => {
+  if (result.missingHeaders.length > 0) {
+    const missingHeadersMessage = t`Missing expected headers: ${result.missingHeaders.join(', ')}`;
+    const invalidHeaders = result.errors
+      .map(({ header, type }) => {
+        const normalizedHeader = header.trim();
+
+        return normalizedHeader === ''
+          ? getColumnErrorMessage(type)
+          : `${normalizedHeader}: ${getColumnErrorMessage(type)}`;
+      })
+      .join('; ');
+
+    return invalidHeaders === ''
+      ? t`This spreadsheet cannot be imported. ${missingHeadersMessage}`
+      : t`This spreadsheet cannot be imported. ${missingHeadersMessage}. Other header problems: ${invalidHeaders}`;
+  }
+
   if (result.recognizedColumnCount > 0) {
     return t`Some spreadsheet headers do not match the current CRM object fields.`;
   }

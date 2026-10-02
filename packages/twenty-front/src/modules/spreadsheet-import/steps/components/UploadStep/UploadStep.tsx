@@ -73,7 +73,8 @@ export const UploadStep = ({
 
             if (
               headerValidation &&
-              headerValidation.recognizedColumnCount === 0
+              (headerValidation.recognizedColumnCount === 0 ||
+                headerValidation.missingHeaders.length > 0)
             ) {
               onError(
                 getSpreadsheetImportHeaderValidationErrorMessage(

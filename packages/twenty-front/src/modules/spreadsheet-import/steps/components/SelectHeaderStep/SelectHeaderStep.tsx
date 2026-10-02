@@ -65,7 +65,11 @@ export const SelectHeaderStep = ({
           data,
         });
 
-        if (headerValidation && headerValidation.recognizedColumnCount === 0) {
+        if (
+          headerValidation &&
+          (headerValidation.recognizedColumnCount === 0 ||
+            headerValidation.missingHeaders.length > 0)
+        ) {
           throw new Error(
             getSpreadsheetImportHeaderValidationErrorMessage(headerValidation),
           );

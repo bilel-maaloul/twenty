@@ -72,6 +72,199 @@ describe('getStrictMatchedColumns', () => {
     expect(subsetResult.recognizedColumnCount).toBe(1);
   });
 
+  it('requires the complete canonical header set regardless of order or values', () => {
+    const canonicalDefinitions = [
+      { fieldKey: 'id', header: 'Record ID', kind: 'importable' },
+      { fieldKey: 'name', header: 'Name', kind: 'importable' },
+      { fieldKey: 'ownerName', header: 'Owner', kind: 'importable' },
+      { fieldKey: 'ownerId', header: 'ID of Owner', kind: 'importable' },
+      {
+        fieldKey: 'domainLabel',
+        header: 'Domain / Link label',
+        kind: 'importable',
+      },
+      {
+        fieldKey: 'domainUrl',
+        header: 'Domain / Link URL',
+        kind: 'importable',
+      },
+      { fieldKey: 'address', header: 'Address', kind: 'importable' },
+      { fieldKey: 'city', header: 'City', kind: 'importable' },
+      { fieldKey: 'customField', header: 'Custom Field', kind: 'importable' },
+      { header: 'Created By', kind: 'readOnly' },
+    ] satisfies SpreadsheetImportHeaderDefinition[];
+    const canonicalFields = canonicalDefinitions
+      .filter(
+        (definition): definition is typeof definition & { fieldKey: string } =>
+          definition.kind === 'importable',
+      )
+      .map(({ fieldKey }) => createField(fieldKey));
+    const completeHeaders = canonicalDefinitions.map(({ header }) => header);
+
+    const completeResult = validate({
+      data: [completeHeaders.map(() => '')],
+      fields: canonicalFields,
+      headerDefinitions: canonicalDefinitions,
+      headerValues: [...completeHeaders].reverse(),
+    });
+
+    expect(completeResult.errors).toEqual([]);
+    expect(completeResult.missingHeaders).toEqual([]);
+    expect(completeResult.recognizedColumnCount).toBe(completeHeaders.length);
+
+    const missingSimpleHeaderResult = validate({
+      data: [
+        [
+          'id',
+          'owner',
+          'owner-id',
+          'domain-label',
+          'domain-url',
+          'address',
+          'city',
+          'custom',
+          'creator',
+        ],
+      ],
+      fields: canonicalFields,
+      headerDefinitions: canonicalDefinitions,
+      headerValues: completeHeaders.filter((header) => header !== 'Name'),
+    });
+
+    expect(missingSimpleHeaderResult.missingHeaders).toEqual(['Name']);
+
+    const missingSeveralHeadersResult = validate({
+      data: [
+        [
+          'name',
+          'domain-label',
+          'domain-url',
+          'address',
+          'city',
+          'custom',
+          'creator',
+        ],
+      ],
+      fields: canonicalFields,
+      headerDefinitions: canonicalDefinitions,
+      headerValues: completeHeaders.filter(
+        (header) => !['Record ID', 'Owner', 'ID of Owner'].includes(header),
+      ),
+    });
+
+    expect(missingSeveralHeadersResult.missingHeaders).toEqual([
+      'Record ID',
+      'Owner',
+      'ID of Owner',
+    ]);
+  });
+
+  it('reports missing relation, compound, and custom headers independently', () => {
+    const definitions = [
+      { fieldKey: 'name', header: 'Name', kind: 'importable' },
+      { fieldKey: 'ownerName', header: 'Owner', kind: 'importable' },
+      { fieldKey: 'ownerId', header: 'ID of Owner', kind: 'importable' },
+      {
+        fieldKey: 'domainLabel',
+        header: 'Domain / Link label',
+        kind: 'importable',
+      },
+      {
+        fieldKey: 'domainUrl',
+        header: 'Domain / Link URL',
+        kind: 'importable',
+      },
+      { fieldKey: 'address', header: 'Address', kind: 'importable' },
+      { fieldKey: 'city', header: 'City', kind: 'importable' },
+      { fieldKey: 'customField', header: 'Custom Field', kind: 'importable' },
+    ] satisfies SpreadsheetImportHeaderDefinition[];
+    const fieldsToValidate = definitions.map(({ fieldKey }) =>
+      createField(fieldKey as string),
+    );
+    const allHeaders = definitions.map(({ header }) => header);
+
+    expect(
+      validate({
+        data: [['value']],
+        fields: fieldsToValidate,
+        headerDefinitions: definitions,
+        headerValues: allHeaders.filter((header) => header !== 'Owner'),
+      }).missingHeaders,
+    ).toEqual(['Owner']);
+    expect(
+      validate({
+        data: [['value']],
+        fields: fieldsToValidate,
+        headerDefinitions: definitions,
+        headerValues: allHeaders.filter((header) => header !== 'ID of Owner'),
+      }).missingHeaders,
+    ).toEqual(['ID of Owner']);
+    expect(
+      validate({
+        data: [['value']],
+        fields: fieldsToValidate,
+        headerDefinitions: definitions,
+        headerValues: allHeaders.filter(
+          (header) => header !== 'Domain / Link URL',
+        ),
+      }).missingHeaders,
+    ).toEqual(['Domain / Link URL']);
+    expect(
+      validate({
+        data: [['value']],
+        fields: fieldsToValidate,
+        headerDefinitions: definitions,
+        headerValues: allHeaders.filter((header) => header !== 'City'),
+      }).missingHeaders,
+    ).toEqual(['City']);
+    expect(
+      validate({
+        data: [['value']],
+        fields: fieldsToValidate,
+        headerDefinitions: definitions,
+        headerValues: allHeaders.filter((header) => header !== 'Custom Field'),
+      }).missingHeaders,
+    ).toEqual(['Custom Field']);
+  });
+
+  it('keeps missing-header diagnostics alongside unknown and duplicate errors', () => {
+    const definitions = [
+      { fieldKey: 'name', header: 'Name', kind: 'importable' },
+      { fieldKey: 'owner', header: 'Owner', kind: 'importable' },
+    ] satisfies SpreadsheetImportHeaderDefinition[];
+    const fieldsToValidate = [createField('name'), createField('owner')];
+
+    const unknownResult = validate({
+      data: [['owner', 'unknown']],
+      fields: fieldsToValidate,
+      headerDefinitions: definitions,
+      headerValues: ['Owner', 'Unknown'],
+    });
+
+    expect(unknownResult.missingHeaders).toEqual(['Name']);
+    expect(unknownResult.errors).toEqual([
+      { columnIndex: 1, header: 'Unknown', type: 'unknown' },
+    ]);
+    expect(
+      getSpreadsheetImportHeaderValidationErrorMessage(unknownResult),
+    ).toBe(
+      'This spreadsheet cannot be imported. Missing expected headers: Name. Other header problems: Unknown: does not match a field in this CRM object',
+    );
+
+    const duplicateResult = validate({
+      data: [['owner', 'owner']],
+      fields: fieldsToValidate,
+      headerDefinitions: definitions,
+      headerValues: ['Owner', 'Owner'],
+    });
+
+    expect(duplicateResult.missingHeaders).toEqual(['Name', 'Owner']);
+    expect(duplicateResult.errors).toEqual([
+      { columnIndex: 0, header: 'Owner', type: 'duplicate' },
+      { columnIndex: 1, header: 'Owner', type: 'duplicate' },
+    ]);
+  });
+
   it('only trims surrounding whitespace and preserves Unicode matching', () => {
     const result = validate({
       data: [['Tunisia']],
@@ -109,8 +302,8 @@ describe('getStrictMatchedColumns', () => {
       { columnIndex: 0, header: 'Unknown A', type: 'unknown' },
       { columnIndex: 1, header: 'Unknown B', type: 'unknown' },
     ]);
-    expect(getSpreadsheetImportHeaderValidationErrorMessage(result)).toContain(
-      'Unknown A, Unknown B',
+    expect(getSpreadsheetImportHeaderValidationErrorMessage(result)).toBe(
+      'This spreadsheet cannot be imported. Missing expected headers: Name, Country. Other header problems: Unknown A: does not match a field in this CRM object; Unknown B: does not match a field in this CRM object',
     );
   });
 
@@ -200,7 +393,7 @@ describe('getStrictMatchedColumns', () => {
 
     expect(emptyResult.recognizedColumnCount).toBe(0);
     expect(getSpreadsheetImportHeaderValidationErrorMessage(emptyResult)).toBe(
-      'The spreadsheet does not contain a recognizable header row.',
+      'This spreadsheet cannot be imported. Missing expected headers: Name, Country',
     );
 
     const headerlessResult = validate({

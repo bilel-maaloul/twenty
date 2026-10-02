@@ -194,6 +194,12 @@ describe('getSpreadsheetImportHeaderDefinitions', () => {
   });
 
   it('recognizes exported read-only and unsupported compound columns', () => {
+    const nameField = createFieldMetadata({
+      id: 'name-field-id',
+      name: 'name',
+      label: 'Name',
+      type: FieldMetadataType.TEXT,
+    });
     const domainField = createFieldMetadata({
       id: 'domain-field-id',
       name: 'domainName',
@@ -258,6 +264,11 @@ describe('getSpreadsheetImportHeaderDefinitions', () => {
 
     const importFields = [
       createImportField({ key: 'id', fieldMetadataItemId: recordIdField.id }),
+      createImportField({
+        key: nameField.name,
+        fieldMetadataItemId: nameField.id,
+        label: nameField.label,
+      }),
       ...['primaryLinkLabel', 'primaryLinkUrl', 'secondaryLinks'].map(
         (subFieldName) =>
           createImportField({
@@ -312,6 +323,7 @@ describe('getSpreadsheetImportHeaderDefinitions', () => {
     const definitions = getSpreadsheetImportHeaderDefinitions({
       fieldMetadataItems: [
         recordIdField,
+        nameField,
         domainField,
         linkedinField,
         addressField,
@@ -359,6 +371,38 @@ describe('getSpreadsheetImportHeaderDefinitions', () => {
     });
 
     expect(validation.errors).toEqual([]);
+    expect(validation.missingHeaders).toEqual([]);
     expect(validation.recognizedColumnCount).toBe(definitions.length);
+
+    const validateHeaders = (headerValues: string[]) =>
+      validateSpreadsheetImportHeaders({
+        data: [headerValues.map(() => '')],
+        fieldKeys: new Set(importFields.map(({ key }) => key)),
+        headerDefinitions: definitions,
+        headerValues,
+      });
+    const expectedHeaders = definitions.map(({ header }) => header);
+
+    expect(
+      validateHeaders(expectedHeaders.filter((header) => header !== 'Name'))
+        .missingHeaders,
+    ).toEqual(['Name']);
+    expect(
+      validateHeaders(
+        expectedHeaders.filter((header) => header !== 'Record ID'),
+      ).missingHeaders,
+    ).toEqual(['Record ID']);
+    expect(
+      validateHeaders(
+        expectedHeaders.filter((header) => header !== 'Account Owner'),
+      ).missingHeaders,
+    ).toEqual(['Account Owner']);
+    expect(
+      validateHeaders(
+        expectedHeaders.filter(
+          (header) => !['Name', 'Record ID', 'Account Owner'].includes(header),
+        ),
+      ).missingHeaders,
+    ).toEqual(['Record ID', 'Name', 'Account Owner']);
   });
 });
