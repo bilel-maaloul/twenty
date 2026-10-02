@@ -1,5 +1,3 @@
-import { type FieldMetadata } from '@/object-record/record-field/ui/types/FieldMetadata';
-import { type ColumnDefinition } from '@/object-record/record-table/types/ColumnDefinition';
 import { type ObjectRecord } from '@/object-record/types/ObjectRecord';
 
 import { contextStoreAnyFieldFilterValueComponentState } from '@/context-store/states/contextStoreAnyFieldFilterValueComponentState';
@@ -8,6 +6,7 @@ import { contextStoreFiltersComponentState } from '@/context-store/states/contex
 import { contextStoreTargetedRecordsRuleComponentState } from '@/context-store/states/contextStoreTargetedRecordsRuleComponentState';
 import { computeContextStoreFilters } from '@/context-store/utils/computeContextStoreFilters';
 import { flattenedFieldMetadataItemsSelector } from '@/object-metadata/states/flattenedFieldMetadataItemsSelector';
+import { type FieldMetadataItem } from '@/object-metadata/types/FieldMetadataItem';
 import { type EnrichedObjectMetadataItem } from '@/object-metadata/types/EnrichedObjectMetadataItem';
 import { useLazyFetchAllRecords } from '@/object-record/hooks/useLazyFetchAllRecords';
 import { useGenerateDepthRecordGqlFieldsFromObject } from '@/object-record/graphql/record-gql-fields/hooks/useGenerateDepthRecordGqlFieldsFromObject';
@@ -22,6 +21,10 @@ import { useAtomComponentSelectorValue } from '@/ui/utilities/state/jotai/hooks/
 import { useAtomComponentStateValue } from '@/ui/utilities/state/jotai/hooks/useAtomComponentStateValue';
 import { useAtomStateValue } from '@/ui/utilities/state/jotai/hooks/useAtomStateValue';
 import { ViewType } from '@/views/types/ViewType';
+import {
+  getSpreadsheetExportColumnDefinitions,
+  type SpreadsheetExportColumnDefinition,
+} from '@/spreadsheet/utils/getSpreadsheetExportColumnDefinitions';
 import { isDefined } from 'twenty-shared/utils';
 
 export const sleep = (ms: number) =>
@@ -39,10 +42,7 @@ export type UseRecordDataOptions = {
   recordIndexId: string;
   callback: (
     rows: ObjectRecord[],
-    columns: Pick<
-      ColumnDefinition<FieldMetadata>,
-      'label' | 'type' | 'metadata'
-    >[],
+    columns: SpreadsheetExportColumnDefinition[],
   ) => void | Promise<void>;
   viewType?: ViewType;
 };
@@ -127,35 +127,26 @@ export const useRecordIndexLazyFetchRecords = ({
     recordIndexId,
   );
 
-  const finalColumns: Pick<
-    ColumnDefinition<FieldMetadata>,
-    'label' | 'type' | 'metadata'
-  >[] = [
+  const finalFieldMetadataItems: FieldMetadataItem[] = [
     ...visibleRecordFields
-      .map((field: RecordField) => {
-        const fieldMetadataItem = objectMetadataItem.fields.find(
+      .map((field: RecordField) =>
+        objectMetadataItem.fields.find(
           (fieldMetadataItem) =>
             fieldMetadataItem.id === field.fieldMetadataItemId,
-        );
-
-        if (!fieldMetadataItem) {
-          return null;
-        }
-
-        return {
-          label: fieldMetadataItem.label,
-          type: fieldMetadataItem.type,
-          metadata: {
-            fieldName: fieldMetadataItem.name,
-            relationType: fieldMetadataItem.relation?.type,
-          },
-        };
-      })
+        ),
+      )
       .filter(isDefined),
     ...(hiddenKanbanFieldColumn && viewType === ViewType.KANBAN
-      ? [hiddenKanbanFieldColumn]
+      ? objectMetadataItem.fields.filter(
+          (fieldMetadataItem) =>
+            fieldMetadataItem.id === hiddenKanbanFieldColumn.fieldMetadataId,
+        )
       : []),
   ];
+
+  const finalColumns = getSpreadsheetExportColumnDefinitions(
+    finalFieldMetadataItems,
+  );
 
   const { progress, isDownloading, fetchAllRecords } = useLazyFetchAllRecords({
     ...findManyRecordsParams,

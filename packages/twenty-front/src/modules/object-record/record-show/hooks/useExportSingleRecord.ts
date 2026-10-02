@@ -1,22 +1,24 @@
 import { useMemo } from 'react';
 
 import { type EnrichedObjectMetadataItem } from '@/object-metadata/types/EnrichedObjectMetadataItem';
-import { formatFieldMetadataItemAsColumnDefinition } from '@/object-metadata/utils/formatFieldMetadataItemAsColumnDefinition';
 import { useFindOneRecord } from '@/object-record/hooks/useFindOneRecord';
 import { useExportProcessRecordsForCSV } from '@/object-record/object-options-dropdown/hooks/useExportProcessRecordsForCSV';
-import { type FieldMetadata } from '@/object-record/record-field/ui/types/FieldMetadata';
 import { csvDownloader } from '@/object-record/record-index/export/hooks/useRecordIndexExportRecords';
-import { type ColumnDefinition } from '@/object-record/record-table/types/ColumnDefinition';
 import { type ObjectRecord } from '@/object-record/types/ObjectRecord';
+import { type SpreadsheetExportFormat } from '@/spreadsheet/types/SpreadsheetExportFormat';
+import { getSpreadsheetExportColumnDefinitions } from '@/spreadsheet/utils/getSpreadsheetExportColumnDefinitions';
+import { xlsxDownloader } from '@/spreadsheet/utils/generateXlsxExport';
 import { isDefined } from 'twenty-shared/utils';
 
 export type UseSingleExportTableDataOptions = {
   filename: string;
+  format?: SpreadsheetExportFormat;
   objectMetadataItem: EnrichedObjectMetadataItem;
   recordId: string;
 };
 export const useExportSingleRecord = ({
   filename,
+  format = 'csv',
   objectMetadataItem,
   recordId,
 }: UseSingleExportTableDataOptions) => {
@@ -24,36 +26,34 @@ export const useExportSingleRecord = ({
     objectMetadataItem.nameSingular,
   );
 
-  const downloadCsv = useMemo(
+  const downloadExport = useMemo(
     () =>
       (
         record: ObjectRecord,
-        columns: Pick<
-          ColumnDefinition<FieldMetadata>,
-          'size' | 'label' | 'type' | 'metadata'
-        >[],
+        columns: ReturnType<typeof getSpreadsheetExportColumnDefinitions>,
       ) => {
         const recordToArray = [record];
         const recordsProcessedForExport =
           processRecordsForCSVExport(recordToArray);
 
-        csvDownloader(filename, { rows: recordsProcessedForExport, columns });
+        if (format === 'xlsx') {
+          xlsxDownloader(filename, {
+            rows: recordsProcessedForExport,
+            columns,
+          });
+        } else {
+          csvDownloader(filename, {
+            rows: recordsProcessedForExport,
+            columns,
+          });
+        }
       },
-    [filename, processRecordsForCSVExport],
+    [filename, format, processRecordsForCSVExport],
   );
 
-  const columns: Pick<
-    ColumnDefinition<FieldMetadata>,
-    'size' | 'label' | 'type' | 'metadata'
-  >[] = objectMetadataItem.fields
-    .filter((field) => field.isActive)
-    .map((field, index) =>
-      formatFieldMetadataItemAsColumnDefinition({
-        field,
-        objectMetadataItem,
-        position: index,
-      }),
-    );
+  const columns = getSpreadsheetExportColumnDefinitions(
+    objectMetadataItem.fields.filter((field) => field.isActive),
+  );
   const { record, error } = useFindOneRecord({
     objectNameSingular: objectMetadataItem.nameSingular,
     objectRecordId: recordId,
@@ -63,7 +63,7 @@ export const useExportSingleRecord = ({
     if (isDefined(error) || !isDefined(record)) {
       return;
     }
-    downloadCsv(record, columns);
+    downloadExport(record, columns);
   };
   return { download };
 };
