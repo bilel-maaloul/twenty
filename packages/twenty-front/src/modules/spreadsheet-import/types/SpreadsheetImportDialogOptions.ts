@@ -5,6 +5,8 @@ import { type SpreadsheetImportHeaderDefinition } from '@/spreadsheet-import/typ
 import { type SpreadsheetImportImportValidationResult } from '@/spreadsheet-import/types/SpreadsheetImportImportValidationResult';
 import { type ImportedRow } from '@/spreadsheet-import/types/SpreadsheetImportImportedRow';
 import { type ImportedStructuredRow } from '@/spreadsheet-import/types/SpreadsheetImportImportedStructuredRow';
+import { type SpreadsheetImportPreflightResult } from '@/spreadsheet-import/types/SpreadsheetImportPreflightResult';
+import { type SpreadsheetImportSubmissionResult } from '@/spreadsheet-import/types/SpreadsheetImportSubmissionResult';
 import { type SpreadsheetImportRowHook } from '@/spreadsheet-import/types/SpreadsheetImportRowHook';
 import { type SpreadsheetImportTableHook } from '@/spreadsheet-import/types/SpreadsheetImportTableHook';
 import { type SpreadsheetImportStep } from '@/spreadsheet-import/steps/types/SpreadsheetImportStep';
@@ -29,10 +31,13 @@ export type SpreadsheetImportDialogOptions = {
   rowHook?: SpreadsheetImportRowHook;
   // Runs after column matching and on entry change
   tableHook?: SpreadsheetImportTableHook;
+  preflightStepHook?: (
+    importedStructuredRows: Array<ImportedStructuredRow & { __index: string }>,
+  ) => Promise<SpreadsheetImportPreflightResult[]>;
   onSubmit: (
     validationResult: SpreadsheetImportImportValidationResult,
     file: File,
-  ) => Promise<void>;
+  ) => Promise<SpreadsheetImportSubmissionResult | void>;
   onAbortSubmit?: () => void;
   // Allows submitting with errors. Default: true
   allowInvalidSubmit?: boolean;

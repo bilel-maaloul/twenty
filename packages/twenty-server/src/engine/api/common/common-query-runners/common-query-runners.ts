@@ -5,6 +5,7 @@ import { CommonDeleteOneQueryRunnerService } from 'src/engine/api/common/common-
 import { CommonDestroyManyQueryRunnerService } from 'src/engine/api/common/common-query-runners/common-destroy-many-query-runner.service';
 import { CommonDestroyOneQueryRunnerService } from 'src/engine/api/common/common-query-runners/common-destroy-one-query-runner.service';
 import { CommonFindDuplicatesQueryRunnerService } from 'src/engine/api/common/common-query-runners/common-find-duplicates-query-runner.service';
+import { CommonImportPreflightQueryRunnerService } from 'src/engine/api/common/common-query-runners/common-import-preflight-query-runner/common-import-preflight-query-runner.service';
 import { CommonFindManyQueryRunnerService } from 'src/engine/api/common/common-query-runners/common-find-many-query-runner.service';
 import { CommonFindOneQueryRunnerService } from 'src/engine/api/common/common-query-runners/common-find-one-query-runner.service';
 import { CommonGroupByQueryRunnerService } from 'src/engine/api/common/common-query-runners/common-group-by-query-runner.service';
@@ -27,6 +28,7 @@ export const CommonQueryRunners = [
   CommonDeleteManyQueryRunnerService,
   CommonDeleteOneQueryRunnerService,
   CommonFindDuplicatesQueryRunnerService,
+  CommonImportPreflightQueryRunnerService,
   CommonRestoreManyQueryRunnerService,
   CommonRestoreOneQueryRunnerService,
   CommonMergeManyQueryRunnerService,

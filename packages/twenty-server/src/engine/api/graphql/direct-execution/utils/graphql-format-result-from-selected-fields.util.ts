@@ -21,6 +21,7 @@ import {
 import { IConnection } from 'src/engine/api/graphql/workspace-query-runner/interfaces/connection.interface';
 import { IEdge } from 'src/engine/api/graphql/workspace-query-runner/interfaces/edge.interface';
 import { IGroupByConnection } from 'src/engine/api/graphql/workspace-query-runner/interfaces/group-by-connection.interface';
+import { RESOLVER_METHOD_NAMES } from 'src/engine/api/graphql/workspace-resolver-builder/constants/resolver-method-names';
 import { ResolverOutput } from 'src/engine/api/graphql/workspace-query-runner/interfaces/resolver-output';
 import { getCompositeSubFieldObjectTypeName } from 'src/engine/api/graphql/workspace-schema-builder/utils/get-composite-sub-field-gql-types.util';
 import { isCompositeFieldMetadataType } from 'src/engine/metadata-modules/field-metadata/utils/is-composite-field-metadata-type.util';
@@ -56,6 +57,10 @@ export const graphQLFormatResultFromSelectedFields = (
   objectNameSingular: string,
   input: GraphQLFormatInput,
 ): unknown => {
+  if (input.method === RESOLVER_METHOD_NAMES.IMPORT_PREFLIGHT) {
+    return result;
+  }
+
   const context: GraphQLFormatContext = {
     ...input,
     fieldMetadataByNameCache: new Map(),

@@ -22,7 +22,6 @@ export type LinksFieldGraphQLInput =
   | null
   | undefined;
 
-// TODO refactor this function handle partial composite field update
 export const transformLinksValue = ({
   input,
   settings,
@@ -36,35 +35,51 @@ export const transformLinksValue = ({
 
   const normalizeLinkUrl = getLinkUrlNormalizer(settings?.type);
 
-  const primaryLinkUrlRaw = input.primaryLinkUrl as string | null;
-  const primaryLinkLabelRaw = input.primaryLinkLabel as string | null;
-  const secondaryLinksRaw = input.secondaryLinks as string | null;
-
-  const secondaryLinksArray = isNonEmptyString(secondaryLinksRaw)
-    ? parseJson<LinkMetadataNullable[]>(secondaryLinksRaw)
-    : secondaryLinksRaw;
-
-  const { primaryLinkLabel, primaryLinkUrl, secondaryLinks } = removeEmptyLinks(
-    {
-      primaryLinkUrl: primaryLinkUrlRaw,
-      primaryLinkLabel: primaryLinkLabelRaw,
-      secondaryLinks: secondaryLinksArray,
-    },
-  );
-
-  const processedSecondaryLinks = secondaryLinks?.map((link) => ({
-    ...link,
-    url: isDefined(link.url) ? normalizeLinkUrl(link.url) : link.url,
-  }));
-
-  return {
+  const transformed: LinksFieldGraphQLInput & Record<string, unknown> = {
     ...input,
-    primaryLinkUrl: isDefined(primaryLinkUrl)
-      ? normalizeLinkUrl(primaryLinkUrl)
-      : primaryLinkUrl,
-    primaryLinkLabel,
-    secondaryLinks: isEmpty(processedSecondaryLinks)
-      ? null
-      : JSON.stringify(processedSecondaryLinks),
   };
+
+  if (Object.prototype.hasOwnProperty.call(input, 'primaryLinkUrl')) {
+    if (isNonEmptyString(input.primaryLinkUrl)) {
+      const normalizedUrl = normalizeLinkUrl(input.primaryLinkUrl);
+      const validatedLink = removeEmptyLinks({
+        primaryLinkUrl: normalizedUrl,
+        primaryLinkLabel: null,
+        secondaryLinks: [],
+      });
+      transformed.primaryLinkUrl = validatedLink.primaryLinkUrl;
+    } else {
+      transformed.primaryLinkUrl = null;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, 'primaryLinkLabel')) {
+    transformed.primaryLinkLabel = isNonEmptyString(input.primaryLinkLabel)
+      ? input.primaryLinkLabel
+      : null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, 'secondaryLinks')) {
+    const secondaryLinksRaw = input.secondaryLinks;
+    const secondaryLinksArray = isNonEmptyString(secondaryLinksRaw)
+      ? parseJson<LinkMetadataNullable[]>(secondaryLinksRaw)
+      : secondaryLinksRaw;
+
+    const { secondaryLinks } = removeEmptyLinks({
+      primaryLinkUrl: 'https://preserve-existing.invalid',
+      primaryLinkLabel: null,
+      secondaryLinks: secondaryLinksArray,
+    });
+
+    const processedSecondaryLinks = secondaryLinks?.map((link) => ({
+      ...link,
+      url: isDefined(link.url) ? normalizeLinkUrl(link.url) : link.url,
+    }));
+
+    transformed.secondaryLinks = isEmpty(processedSecondaryLinks)
+      ? null
+      : JSON.stringify(processedSecondaryLinks);
+  }
+
+  return transformed;
 };

@@ -3,6 +3,7 @@ import { type ImportedRow } from '@/spreadsheet-import/types';
 import { type SpreadsheetColumns } from '@/spreadsheet-import/types/SpreadsheetColumns';
 import { type SpreadsheetImportHeaderValidationError } from '@/spreadsheet-import/utils/getStrictMatchedColumns';
 import { type WorkBook } from 'xlsx-ugnis';
+import { type SpreadsheetImportSubmissionResult } from '@/spreadsheet-import/types';
 
 export type SpreadsheetImportStep =
   | {
@@ -33,4 +34,8 @@ export type SpreadsheetImportStep =
   | {
       type: SpreadsheetImportStepType.importData;
       recordsToImportCount: number;
+    }
+  | {
+      type: SpreadsheetImportStepType.importResult;
+      result: SpreadsheetImportSubmissionResult;
     };

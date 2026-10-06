@@ -235,7 +235,19 @@ export const getSpreadsheetImportHeaderValidationErrorMessage = (
   }
 
   if (result.recognizedColumnCount > 0) {
-    return t`Some spreadsheet headers do not match the current CRM object fields.`;
+    const invalidHeaders = result.errors
+      .map(({ header, type }) => {
+        const normalizedHeader = header.trim();
+
+        return normalizedHeader === ''
+          ? getColumnErrorMessage(type)
+          : `${normalizedHeader}: ${getColumnErrorMessage(type)}`;
+      })
+      .join('; ');
+
+    return invalidHeaders === ''
+      ? t`Some spreadsheet headers do not match the current CRM object fields.`
+      : t`This file does not match the CRM import format. Header problems: ${invalidHeaders}`;
   }
 
   const unmatchedHeaders = result.errors

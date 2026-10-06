@@ -194,32 +194,77 @@ export const transformPhonesValue = ({
   }
 
   const { additionalPhones, ...primary } = input;
-  const {
-    callingCode: primaryPhoneCallingCode,
-    countryCode: primaryPhoneCountryCode,
-    number: primaryPhoneNumber,
-  } = validateAndInferPhoneInput({
-    callingCode: primary.primaryPhoneCallingCode,
-    countryCode: primary.primaryPhoneCountryCode,
-    number: primary.primaryPhoneNumber,
-  });
-
-  const parsedAdditionalPhones = isNonEmptyString(additionalPhones)
-    ? (parseJson<Partial<AdditionalPhoneMetadata>[]>(additionalPhones) ?? [])
-    : isArray(additionalPhones)
-      ? additionalPhones
-      : [];
-
-  const validatedAdditionalPhones = parsedAdditionalPhones.map(
-    validateAndInferPhoneInput,
+  const hasPrimaryPhoneNumber = Object.prototype.hasOwnProperty.call(
+    primary,
+    'primaryPhoneNumber',
   );
+  const primaryPhone = hasPrimaryPhoneNumber
+    ? validateAndInferPhoneInput({
+        callingCode: primary.primaryPhoneCallingCode,
+        countryCode: primary.primaryPhoneCountryCode,
+        number: primary.primaryPhoneNumber,
+      })
+    : {
+        callingCode: primary.primaryPhoneCallingCode,
+        countryCode: primary.primaryPhoneCountryCode,
+        number: primary.primaryPhoneNumber,
+      };
 
-  return removeUndefinedFields({
-    additionalPhones: isEmpty(validatedAdditionalPhones)
+  const transformed: Record<string, unknown> = {};
+
+  if (Object.prototype.hasOwnProperty.call(primary, 'primaryPhoneNumber')) {
+    transformed.primaryPhoneNumber = primaryPhone.number;
+
+    if (isNonEmptyString(primary.primaryPhoneNumber)) {
+      transformed.primaryPhoneCallingCode = primaryPhone.callingCode;
+      transformed.primaryPhoneCountryCode = primaryPhone.countryCode;
+    } else {
+      if (
+        Object.prototype.hasOwnProperty.call(primary, 'primaryPhoneCallingCode')
+      ) {
+        transformed.primaryPhoneCallingCode = nullIfEmptyString(
+          primary.primaryPhoneCallingCode,
+        );
+      }
+      if (
+        Object.prototype.hasOwnProperty.call(primary, 'primaryPhoneCountryCode')
+      ) {
+        transformed.primaryPhoneCountryCode = nullIfEmptyString(
+          primary.primaryPhoneCountryCode,
+        );
+      }
+    }
+  } else {
+    if (
+      Object.prototype.hasOwnProperty.call(primary, 'primaryPhoneCallingCode')
+    ) {
+      transformed.primaryPhoneCallingCode = nullIfEmptyString(
+        primary.primaryPhoneCallingCode,
+      );
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(primary, 'primaryPhoneCountryCode')
+    ) {
+      transformed.primaryPhoneCountryCode = nullIfEmptyString(
+        primary.primaryPhoneCountryCode,
+      );
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, 'additionalPhones')) {
+    const parsedAdditionalPhones = isNonEmptyString(additionalPhones)
+      ? (parseJson<Partial<AdditionalPhoneMetadata>[]>(additionalPhones) ?? [])
+      : isArray(additionalPhones)
+        ? additionalPhones
+        : [];
+    const validatedAdditionalPhones = parsedAdditionalPhones.map(
+      validateAndInferPhoneInput,
+    );
+
+    transformed.additionalPhones = isEmpty(validatedAdditionalPhones)
       ? null
-      : JSON.stringify(validatedAdditionalPhones),
-    primaryPhoneCallingCode,
-    primaryPhoneCountryCode,
-    primaryPhoneNumber,
-  });
+      : JSON.stringify(validatedAdditionalPhones);
+  }
+
+  return removeUndefinedFields(transformed);
 };

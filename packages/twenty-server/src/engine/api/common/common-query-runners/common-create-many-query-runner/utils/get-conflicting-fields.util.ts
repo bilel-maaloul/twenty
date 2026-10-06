@@ -4,6 +4,7 @@ import { isDefined } from 'twenty-shared/utils';
 import {
   type ConflictingFieldGroup,
   type ConflictingProperty,
+  type IndexedConflictingFieldGroup,
 } from 'src/engine/api/common/common-query-runners/common-create-many-query-runner/types/conflicting-field-group.type';
 import { getFlatFieldsFromFlatObjectMetadata } from 'src/engine/api/graphql/workspace-schema-builder/utils/get-flat-fields-for-flat-object-metadata.util';
 import { computeCompositeColumnName } from 'src/engine/metadata-modules/field-metadata/utils/compute-column-name.util';
@@ -125,12 +126,12 @@ const computeConflictingPropertiesForIndex = ({
   return { baseFields, conflictingProperties };
 };
 
-export const getConflictingFields = (
+export const getConflictingFieldGroups = (
   flatObjectMetadata: FlatObjectMetadata,
   flatFieldMetadataMaps: FlatEntityMaps<OrmFlatFieldMetadata>,
   flatIndexMaps: FlatEntityMaps<FlatIndexMetadata>,
-): ConflictingFieldGroup[] => {
-  const conflictingFieldGroups: ConflictingFieldGroup[] = [];
+): IndexedConflictingFieldGroup[] => {
+  const conflictingFieldGroups: IndexedConflictingFieldGroup[] = [];
 
   const idField = getFlatFieldsFromFlatObjectMetadata(
     flatObjectMetadata,
@@ -141,6 +142,8 @@ export const getConflictingFields = (
     conflictingFieldGroups.push({
       baseFields: ['id'],
       conflictingProperties: [{ fullPath: 'id', column: 'id' }],
+      indexMetadataId: 'id',
+      indexMetadataName: 'id',
     });
   }
 
@@ -165,8 +168,24 @@ export const getConflictingFields = (
     conflictingFieldGroups.push({
       baseFields: indexConflictingFields.baseFields,
       conflictingProperties: indexConflictingFields.conflictingProperties,
+      indexMetadataId: flatIndexMetadata.id,
+      indexMetadataName: flatIndexMetadata.name,
     });
   }
 
   return conflictingFieldGroups;
 };
+
+export const getConflictingFields = (
+  flatObjectMetadata: FlatObjectMetadata,
+  flatFieldMetadataMaps: FlatEntityMaps<OrmFlatFieldMetadata>,
+  flatIndexMaps: FlatEntityMaps<FlatIndexMetadata>,
+): ConflictingFieldGroup[] =>
+  getConflictingFieldGroups(
+    flatObjectMetadata,
+    flatFieldMetadataMaps,
+    flatIndexMaps,
+  ).map(({ baseFields, conflictingProperties }) => ({
+    baseFields,
+    conflictingProperties,
+  }));

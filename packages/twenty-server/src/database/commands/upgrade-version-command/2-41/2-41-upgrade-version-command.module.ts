@@ -6,6 +6,7 @@ import { CorrectStandardFieldAcronymCasingCommand } from 'src/database/commands/
 import { BackfillWorkspaceWorkflowIdOnWorkflowsCommand } from 'src/database/commands/upgrade-version-command/2-41/2-41-workspace-command-1789350000002-backfill-workspace-workflow-id-on-workflows.command';
 import { SyncCalendarEventMetadataCommand } from 'src/database/commands/upgrade-version-command/2-41/2-41-workspace-command-1790071892065-sync-calendar-event-metadata.command';
 import { RebuildPersonEmailUniqueIndexCommand } from 'src/database/commands/upgrade-version-command/2-41/2-41-workspace-command-1790071892066-rebuild-person-email-unique-index.command';
+import { RemoveCompanyDomainNameUniqueIndexCommand } from 'src/database/commands/upgrade-version-command/2-41/2-41-workspace-command-1791279807780-remove-company-domain-name-unique-index.command';
 import { ApplicationModule } from 'src/engine/core-modules/application/application.module';
 import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
 import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache.module';
@@ -26,6 +27,7 @@ import { WorkspaceMigrationRunnerModule } from 'src/engine/workspace-manager/wor
     BackfillWorkspaceWorkflowIdOnWorkflowsCommand,
     SyncCalendarEventMetadataCommand,
     RebuildPersonEmailUniqueIndexCommand,
+    RemoveCompanyDomainNameUniqueIndexCommand,
   ],
 })
 export class V2_41_UpgradeVersionCommandModule {}

@@ -108,6 +108,7 @@ export const useBuildSpreadsheetImportFields = () => {
       label: fieldMetadataItem.label,
       key: fieldMetadataItem.name,
       fieldMetadataItemId: fieldMetadataItem.id,
+      fieldMetadataName: fieldMetadataItem.name,
       fieldType: { type: 'input' },
       fieldMetadataType: fieldMetadataItem.type,
       fieldValidationDefinitions: getSpreadSheetFieldValidationDefinitions(

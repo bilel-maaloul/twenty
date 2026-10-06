@@ -16,6 +16,8 @@ export const getResolverName = (
       return `${camelCase(objectMetadata.nameSingular)}`;
     case 'findDuplicates':
       return `${camelCase(objectMetadata.nameSingular)}Duplicates`;
+    case 'importPreflight':
+      return `${camelCase(objectMetadata.nameSingular)}ImportPreflight`;
 
     case 'createOne':
       return `create${pascalCase(objectMetadata.nameSingular)}`;

@@ -1,9 +1,10 @@
 import { useCallback, useContext, useState } from 'react';
 import { useSpreadsheetImportInternal } from '@/spreadsheet-import/hooks/useSpreadsheetImportInternal';
-import { useSnackBar } from '@/ui/feedback/snack-bar-manager/hooks/useSnackBar';
+import { useDialogManager } from '@/ui/feedback/dialog-manager/hooks/useDialogManager';
 import { ModalContent } from 'twenty-ui/surfaces';
 
 import { ImportDataStep } from '@/spreadsheet-import/steps/components/ImportDataStep';
+import { ImportResultStep } from '@/spreadsheet-import/steps/components/ImportResultStep';
 import { type SpreadsheetImportStep } from '@/spreadsheet-import/steps/types/SpreadsheetImportStep';
 import { SpreadsheetImportStepType } from '@/spreadsheet-import/steps/types/SpreadsheetImportStepType';
 import { CircularProgressBar } from 'twenty-ui/feedback';
@@ -13,6 +14,7 @@ import { SelectSheetStep } from './SelectSheetStep/SelectSheetStep';
 import { UploadStep } from './UploadStep/UploadStep';
 import { ValidationStep } from './ValidationStep/ValidationStep';
 import { ThemeContext } from 'twenty-ui/theme-constants';
+import { t } from '@lingui/core/macro';
 
 type SpreadsheetImportStepperProps = {
   nextStep: () => void;
@@ -37,15 +39,17 @@ export const SpreadsheetImportStepper = ({
 
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
 
-  const { enqueueErrorSnackBar } = useSnackBar();
+  const { enqueueDialog } = useDialogManager();
 
   const handleError = useCallback(
     (description: string) => {
-      enqueueErrorSnackBar({
+      enqueueDialog({
+        title: t`This file cannot continue`,
         message: description,
+        buttons: [{ title: t`Choose another file`, role: 'confirm' }],
       });
     },
-    [enqueueErrorSnackBar],
+    [enqueueDialog],
   );
 
   const handleBack = useCallback(() => {
@@ -126,6 +130,8 @@ export const SpreadsheetImportStepper = ({
           recordsToImportCount={currentStepState.recordsToImportCount}
         />
       );
+    case SpreadsheetImportStepType.importResult:
+      return <ImportResultStep result={currentStepState.result} />;
     case SpreadsheetImportStepType.loading:
     default:
       return (

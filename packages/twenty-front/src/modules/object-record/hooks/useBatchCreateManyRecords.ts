@@ -12,6 +12,15 @@ import { useSnackBar } from '@/ui/feedback/snack-bar-manager/hooks/useSnackBar';
 import { CombinedGraphQLErrors } from '@apollo/client/errors';
 import { t } from '@lingui/core/macro';
 
+export class BatchCreateManyRecordsError extends Error {
+  constructor(
+    readonly successfulRecords: ObjectRecord[],
+    readonly originalError: unknown,
+  ) {
+    super('One or more record batches failed.');
+  }
+}
+
 export const useBatchCreateManyRecords = <
   CreatedObjectRecord extends ObjectRecord = ObjectRecord,
 >({
@@ -47,18 +56,19 @@ export const useBatchCreateManyRecords = <
   const batchCreateManyRecords = async ({
     recordsToCreate,
     upsert,
+    startingCount = 0,
   }: {
     recordsToCreate: Partial<CreatedObjectRecord>[];
     upsert?: boolean;
+    startingCount?: number;
   }) => {
     const numberOfBatches = Math.ceil(
       recordsToCreate.length / mutationBatchSize,
     );
 
-    setBatchedRecordsCount?.(0);
+    setBatchedRecordsCount?.(startingCount);
 
     const allCreatedRecords = [];
-    let createdRecordsCount = 0;
     try {
       for (let batchIndex = 0; batchIndex < numberOfBatches; batchIndex++) {
         const batchedRecordsToCreate = recordsToCreate.slice(
@@ -66,35 +76,39 @@ export const useBatchCreateManyRecords = <
           (batchIndex + 1) * mutationBatchSize,
         );
 
-        createdRecordsCount =
-          batchIndex + 1 === numberOfBatches
-            ? recordsToCreate.length
-            : (batchIndex + 1) * mutationBatchSize;
-
         const createdRecords = await createManyRecords({
           recordsToCreate: batchedRecordsToCreate,
           upsert,
           abortController,
         });
 
-        setBatchedRecordsCount?.(createdRecordsCount);
         allCreatedRecords.push(...createdRecords);
+        setBatchedRecordsCount?.(startingCount + allCreatedRecords.length);
       }
     } catch (error) {
       if (
         CombinedGraphQLErrors.is(error) &&
         error.message.includes('aborted')
       ) {
-        const formattedCreatedRecordsCount = formatNumber(createdRecordsCount);
+        const formattedCreatedRecordsCount = formatNumber(
+          allCreatedRecords.length,
+        );
         enqueueWarningSnackBar({
           message: t`Record creation stopped. ${formattedCreatedRecordsCount} records created.`,
           options: {
             duration: 5000,
           },
         });
-      } else {
-        throw error;
       }
+
+      await refetchAggregateQueries({
+        objectMetadataNamePlural: objectMetadataItem.namePlural,
+      });
+      dispatchObjectRecordOperationBrowserEvent({
+        objectMetadataItem,
+        operation: { type: 'create-many' },
+      });
+      throw new BatchCreateManyRecordsError(allCreatedRecords, error);
     }
 
     await refetchAggregateQueries({

@@ -9,6 +9,7 @@ export type SpreadsheetImportTableProps<
   | 'className'
   | 'columns'
   | 'headerRowHeight'
+  | 'rowHeight'
   | 'rows'
   | 'rowKeyGetter'
   | 'onCellClick'

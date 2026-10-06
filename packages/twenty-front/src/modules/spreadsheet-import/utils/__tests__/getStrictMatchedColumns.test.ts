@@ -307,6 +307,21 @@ describe('getStrictMatchedColumns', () => {
     );
   });
 
+  it('explains unknown headers even when another canonical header is valid', () => {
+    const result = validate({
+      data: [['Acme', 'unexpected']],
+      fields: [createField('name')],
+      headerDefinitions: [
+        { fieldKey: 'name', header: 'Name', kind: 'importable' },
+      ],
+      headerValues: ['Name', 'Phone Number 2'],
+    });
+
+    expect(getSpreadsheetImportHeaderValidationErrorMessage(result)).toBe(
+      'This file does not match the CRM import format. Header problems: Phone Number 2: does not match a field in this CRM object',
+    );
+  });
+
   it('recognizes read-only headers without assigning an import field', () => {
     const result = validate({
       data: [['Created by', 'Acme']],

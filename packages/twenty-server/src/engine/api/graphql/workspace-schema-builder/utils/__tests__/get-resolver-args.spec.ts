@@ -4,6 +4,7 @@ import {
   GraphQLNonNull,
   GraphQLString,
 } from 'graphql';
+import GraphQLJSON from 'graphql-type-json';
 
 import { type WorkspaceResolverBuilderMethodNames } from 'src/engine/api/graphql/workspace-resolver-builder/interfaces/workspace-resolvers-builder.interface';
 
@@ -29,6 +30,23 @@ describe('getResolverArgs', () => {
     },
     findOne: {
       filter: { kind: GqlInputTypeDefinitionKind.Filter, isNullable: false },
+    },
+    importPreflight: {
+      data: {
+        kind: GqlInputTypeDefinitionKind.Create,
+        isNullable: false,
+        isArray: true,
+      },
+      rowIds: {
+        type: GraphQLString,
+        isNullable: false,
+        isArray: true,
+      },
+      sourceStates: {
+        type: GraphQLJSON,
+        isNullable: true,
+        isArray: true,
+      },
     },
     createMany: {
       data: {

@@ -24,6 +24,7 @@ import { DeleteOneResolverFactory } from './factories/delete-one-resolver.factor
 import { FindDuplicatesResolverFactory } from './factories/find-duplicates-resolver.factory';
 import { FindManyResolverFactory } from './factories/find-many-resolver.factory';
 import { FindOneResolverFactory } from './factories/find-one-resolver.factory';
+import { ImportPreflightResolverFactory } from './factories/import-preflight-resolver.factory';
 import { UpdateOneResolverFactory } from './factories/update-one-resolver.factory';
 import { type WorkspaceResolverBuilderFactoryInterface } from './interfaces/workspace-resolver-builder-factory.interface';
 import {
@@ -39,6 +40,7 @@ export class WorkspaceResolverFactory {
     private readonly findManyResolverFactory: FindManyResolverFactory,
     private readonly findOneResolverFactory: FindOneResolverFactory,
     private readonly findDuplicatesResolverFactory: FindDuplicatesResolverFactory,
+    private readonly importPreflightResolverFactory: ImportPreflightResolverFactory,
     private readonly createManyResolverFactory: CreateManyResolverFactory,
     private readonly createOneResolverFactory: CreateOneResolverFactory,
     private readonly updateOneResolverFactory: UpdateOneResolverFactory,
@@ -72,6 +74,7 @@ export class WorkspaceResolverFactory {
       ['destroyMany', this.destroyManyResolverFactory],
       ['destroyOne', this.destroyOneResolverFactory],
       ['findDuplicates', this.findDuplicatesResolverFactory],
+      ['importPreflight', this.importPreflightResolverFactory],
       ['findMany', this.findManyResolverFactory],
       ['findOne', this.findOneResolverFactory],
       ['mergeMany', this.mergeManyResolverFactory],

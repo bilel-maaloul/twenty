@@ -34,6 +34,7 @@ import { assertFindDuplicatesArgs } from 'src/engine/api/graphql/direct-executio
 import { assertFindManyArgs } from 'src/engine/api/graphql/direct-execution/utils/assert-find-many-args.util';
 import { assertFindOneArgs } from 'src/engine/api/graphql/direct-execution/utils/assert-find-one-args.util';
 import { assertGroupByArgs } from 'src/engine/api/graphql/direct-execution/utils/assert-group-by-args.util';
+import { assertImportPreflightArgs } from 'src/engine/api/graphql/direct-execution/utils/assert-import-preflight-args.util';
 import { assertMergeManyArgs } from 'src/engine/api/graphql/direct-execution/utils/assert-merge-many-args.util';
 import { assertRestoreManyArgs } from 'src/engine/api/graphql/direct-execution/utils/assert-restore-many-args.util';
 import { assertRestoreOneArgs } from 'src/engine/api/graphql/direct-execution/utils/assert-restore-one-args.util';
@@ -61,6 +62,7 @@ import { FindDuplicatesResolverFactory } from 'src/engine/api/graphql/workspace-
 import { FindManyResolverFactory } from 'src/engine/api/graphql/workspace-resolver-builder/factories/find-many-resolver.factory';
 import { FindOneResolverFactory } from 'src/engine/api/graphql/workspace-resolver-builder/factories/find-one-resolver.factory';
 import { GroupByResolverFactory } from 'src/engine/api/graphql/workspace-resolver-builder/factories/group-by-resolver.factory';
+import { ImportPreflightResolverFactory } from 'src/engine/api/graphql/workspace-resolver-builder/factories/import-preflight-resolver.factory';
 import { MergeManyResolverFactory } from 'src/engine/api/graphql/workspace-resolver-builder/factories/merge-many-resolver.factory';
 import { RestoreManyResolverFactory } from 'src/engine/api/graphql/workspace-resolver-builder/factories/restore-many-resolver.factory';
 import { RestoreOneResolverFactory } from 'src/engine/api/graphql/workspace-resolver-builder/factories/restore-one-resolver.factory';
@@ -120,6 +122,7 @@ export class DirectExecutionService {
     private readonly restoreOneResolverFactory: RestoreOneResolverFactory,
     private readonly restoreManyResolverFactory: RestoreManyResolverFactory,
     private readonly mergeManyResolverFactory: MergeManyResolverFactory,
+    private readonly importPreflightResolverFactory: ImportPreflightResolverFactory,
   ) {
     this.queryCostHistogram = this.metricsService
       .getMeter()
@@ -152,6 +155,10 @@ export class DirectExecutionService {
         [RESOLVER_METHOD_NAMES.RESTORE_ONE, this.restoreOneResolverFactory],
         [RESOLVER_METHOD_NAMES.RESTORE_MANY, this.restoreManyResolverFactory],
         [RESOLVER_METHOD_NAMES.MERGE_MANY, this.mergeManyResolverFactory],
+        [
+          RESOLVER_METHOD_NAMES.IMPORT_PREFLIGHT,
+          this.importPreflightResolverFactory,
+        ],
       ],
     );
 
@@ -171,6 +178,7 @@ export class DirectExecutionService {
       [RESOLVER_METHOD_NAMES.RESTORE_ONE, assertRestoreOneArgs],
       [RESOLVER_METHOD_NAMES.RESTORE_MANY, assertRestoreManyArgs],
       [RESOLVER_METHOD_NAMES.MERGE_MANY, assertMergeManyArgs],
+      [RESOLVER_METHOD_NAMES.IMPORT_PREFLIGHT, assertImportPreflightArgs],
     ]);
   }
 

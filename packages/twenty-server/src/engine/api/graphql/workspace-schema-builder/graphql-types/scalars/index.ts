@@ -1,3 +1,5 @@
+import GraphQLJSON from 'graphql-type-json';
+
 import { BigFloatScalarType } from './big-float.scalar';
 import { BigIntScalarType } from './big-int.scalar';
 import { ConnectionCursorScalarType } from './connection-cursor.scalar';
@@ -29,4 +31,5 @@ export const scalars = [
   CursorScalarType,
   PositionScalarType,
   TSVectorScalarType,
+  GraphQLJSON,
 ];

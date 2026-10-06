@@ -63,9 +63,24 @@ describe('normalizeTableData', () => {
     const result = normalizeTableData(columns, rawData, fields);
 
     expect(result).toStrictEqual([
-      { name: 'John', age: '30', active: true },
-      { name: 'Alice', age: undefined, active: false },
-      { name: 'Bob', age: '25', active: false },
+      {
+        name: 'John',
+        age: '30',
+        active: true,
+        __sourceStates: '{"name":"VALUE","age":"VALUE","active":"VALUE"}',
+      },
+      {
+        name: 'Alice',
+        age: undefined,
+        active: false,
+        __sourceStates: '{"name":"VALUE","age":"EMPTY","active":"VALUE"}',
+      },
+      {
+        name: 'Bob',
+        age: '25',
+        active: false,
+        __sourceStates: '{"name":"VALUE","age":"VALUE","active":"VALUE"}',
+      },
     ]);
   });
 
@@ -94,11 +109,17 @@ describe('normalizeTableData', () => {
       },
     ] as SpreadsheetImportField[];
 
-    const rawData = [['Yes'], ['No'], ['OtherValue']];
+    const rawData = [['Yes'], ['No'], ['OtherValue'], ['']];
 
     const result = normalizeTableData(columns, rawData, fields);
 
-    expect(result).toStrictEqual([{ active: true }, { active: false }, {}]);
+    expect(result).toStrictEqual([
+      { active: true, __sourceStates: '{"active":"VALUE"}' },
+      { active: false, __sourceStates: '{"active":"VALUE"}' },
+      { __sourceStates: '{"active":"VALUE"}' },
+      { __sourceStates: '{"active":"EMPTY"}' },
+    ]);
+    expect(result[3]?.active).toBeUndefined();
   });
 
   it('should map matchedSelect and matchedSelectOptions values correctly', () => {
@@ -136,9 +157,9 @@ describe('normalizeTableData', () => {
     const result = normalizeTableData(columns, rawData, fields);
 
     expect(result).toStrictEqual([
-      { number: '1' },
-      { number: '2' },
-      { number: undefined },
+      { number: '1', __sourceStates: '{"number":"VALUE"}' },
+      { number: '2', __sourceStates: '{"number":"VALUE"}' },
+      { number: undefined, __sourceStates: '{"number":"VALUE"}' },
     ]);
   });
 

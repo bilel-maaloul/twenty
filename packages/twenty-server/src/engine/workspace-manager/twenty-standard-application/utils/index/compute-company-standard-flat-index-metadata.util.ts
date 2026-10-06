@@ -29,20 +29,6 @@ export const buildCompanyStandardFlatIndexMetadatas = ({
     twentyStandardApplicationId,
     now,
   }),
-  domainNameUniqueIndex: createStandardIndexFlatMetadata({
-    objectName,
-    workspaceId,
-    context: {
-      indexName: 'domainNameUniqueIndex',
-      relatedFieldNames: ['domainName'],
-      isUnique: true,
-      hasDeterministicUniversalIdentifier: true,
-    },
-    standardObjectMetadataRelatedEntityIds,
-    dependencyFlatEntityMaps,
-    twentyStandardApplicationId,
-    now,
-  }),
   searchVectorGinIndex: createStandardIndexFlatMetadata({
     objectName,
     workspaceId,

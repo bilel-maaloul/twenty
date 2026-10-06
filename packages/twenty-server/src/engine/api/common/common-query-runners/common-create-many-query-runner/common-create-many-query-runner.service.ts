@@ -8,18 +8,10 @@ import {
   ObjectRecord,
 } from 'twenty-shared/types';
 import { isDefined } from 'twenty-shared/utils';
-import {
-  Brackets,
-  FindOptionsRelations,
-  In,
-  InsertResult,
-  ObjectLiteral,
-} from 'typeorm';
+import { FindOptionsRelations, In, InsertResult, ObjectLiteral } from 'typeorm';
 
 import { CommonBaseQueryRunnerService } from 'src/engine/api/common/common-query-runners/common-base-query-runner.service';
-import { type ConflictingFieldGroup } from 'src/engine/api/common/common-query-runners/common-create-many-query-runner/types/conflicting-field-group.type';
 import { PartialObjectRecordWithId } from 'src/engine/api/common/common-query-runners/common-create-many-query-runner/types/partial-object-record-with-id.type';
-import { buildWhereConditions } from 'src/engine/api/common/common-query-runners/common-create-many-query-runner/utils/build-where-conditions.util';
 import { categorizeRecords } from 'src/engine/api/common/common-query-runners/common-create-many-query-runner/utils/categorize-records.util';
 import { getConflictingFields } from 'src/engine/api/common/common-query-runners/common-create-many-query-runner/utils/get-conflicting-fields.util';
 import {
@@ -40,7 +32,7 @@ import { type NestedRelationsReadPathOptions } from 'src/engine/api/common/types
 import { buildColumnsToReturn } from 'src/engine/api/graphql/graphql-query-runner/utils/build-columns-to-return';
 import { buildColumnsToSelect } from 'src/engine/api/graphql/graphql-query-runner/utils/build-columns-to-select';
 import { assertIsValidUuid } from 'src/engine/api/graphql/workspace-query-runner/utils/assert-is-valid-uuid.util';
-import { getAllSelectableColumnNames } from 'src/engine/api/utils/get-all-selectable-column-names.utils';
+import { findExistingRecords } from 'src/engine/api/common/common-query-runners/common-create-many-query-runner/utils/find-existing-records.util';
 import { WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
 import { RecordPositionService } from 'src/engine/core-modules/record-position/services/record-position.service';
 import { type FlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/types/flat-entity-maps.type';
@@ -354,11 +346,11 @@ export class CommonCreateManyQueryRunnerService extends CommonBaseQueryRunnerSer
       flatFieldMetadataMaps,
       flatIndexMaps,
     );
-    const existingRecords = await this.findExistingRecords({
+    const existingRecords = await findExistingRecords({
       repository,
       flatObjectMetadata,
       flatFieldMetadataMaps,
-      args,
+      records: args.data,
       conflictingFieldGroups,
     });
 
@@ -442,64 +434,6 @@ export class CommonCreateManyQueryRunnerService extends CommonBaseQueryRunnerSer
       },
       shouldBackfillPositionIfUndefined: true,
     });
-  }
-
-  private async findExistingRecords({
-    repository,
-    flatObjectMetadata,
-    flatFieldMetadataMaps,
-    args,
-    conflictingFieldGroups,
-  }: {
-    repository: WorkspaceRepository<ObjectLiteral>;
-    flatObjectMetadata: FlatObjectMetadata;
-    flatFieldMetadataMaps: FlatEntityMaps<OrmFlatFieldMetadata>;
-    args: CreateManyQueryArgs;
-    conflictingFieldGroups: ConflictingFieldGroup[];
-  }): Promise<PartialObjectRecordWithId[]> {
-    const queryBuilder = repository.createQueryBuilder(
-      flatObjectMetadata.nameSingular,
-    );
-
-    const whereConditions = buildWhereConditions(
-      args.data,
-      conflictingFieldGroups,
-    );
-
-    if (whereConditions.length === 0) {
-      return [];
-    }
-
-    queryBuilder.andWhere(
-      new Brackets((qb) => {
-        whereConditions.forEach((condition, index) => {
-          if (index === 0) {
-            qb.where(condition);
-          } else {
-            qb.orWhere(condition);
-          }
-        });
-      }),
-    );
-
-    const restrictedFields =
-      repository.objectRecordsPermissions?.[flatObjectMetadata.id]
-        ?.restrictedFields;
-
-    const selectOptions = getAllSelectableColumnNames({
-      restrictedFields: restrictedFields ?? {},
-      objectMetadata: {
-        objectMetadataMapItem: flatObjectMetadata,
-        flatFieldMetadataMaps,
-      },
-    });
-
-    return (await queryBuilder
-      .withDeleted()
-      .setFindOptions({
-        select: selectOptions,
-      })
-      .getMany()) as PartialObjectRecordWithId[];
   }
 
   private async processRecordsToUpdate({

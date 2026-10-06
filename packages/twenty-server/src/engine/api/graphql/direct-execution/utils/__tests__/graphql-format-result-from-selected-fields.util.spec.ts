@@ -1,5 +1,6 @@
 import { FieldMetadataType } from 'twenty-shared/types';
 
+import { type CommonImportPreflightResult } from 'src/engine/api/common/types/common-import-preflight-result.type';
 import { graphQLFormatResultFromSelectedFields } from 'src/engine/api/graphql/direct-execution/utils/graphql-format-result-from-selected-fields.util';
 import { type FlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/types/flat-entity-maps.type';
 import { type OrmFlatFieldMetadata } from 'src/engine/metadata-modules/flat-field-metadata/types/orm-flat-field-metadata.type';
@@ -49,6 +50,29 @@ const formatPerson = (phones: unknown) =>
   );
 
 describe('graphQLFormatResultFromSelectedFields', () => {
+  it('passes through import preflight JSON results', () => {
+    const result: CommonImportPreflightResult[] = [
+      {
+        rowId: 'row-1',
+        status: 'NEW',
+        matchedRecordIds: [],
+        matchedConstraintIds: [],
+        matchedConstraintNames: [],
+        changedFieldNames: [],
+        uncomparableFieldNames: [],
+      },
+    ];
+
+    expect(
+      graphQLFormatResultFromSelectedFields(result, {}, 'person', {
+        flatObjectMetadataMaps,
+        flatFieldMetadataMaps,
+        objectIdByNameSingular: { person: PERSON_ID },
+        method: 'importPreflight',
+      }),
+    ).toBe(result);
+  });
+
   it('projects selected sub-fields of an object-typed composite sub-field', () => {
     expect(
       formatPerson({

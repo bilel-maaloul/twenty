@@ -17,7 +17,6 @@ describe('transformPhonesValue', () => {
     });
 
     expect(result).toEqual({
-      additionalPhones: null,
       primaryPhoneNumber: null,
       primaryPhoneCallingCode: null,
       primaryPhoneCountryCode: null,
@@ -41,7 +40,6 @@ describe('transformPhonesValue', () => {
     });
 
     expect(result).toEqual({
-      additionalPhones: null,
       primaryPhoneNumber: '4155552671',
       primaryPhoneCallingCode: '+1',
       primaryPhoneCountryCode: 'US',
@@ -57,11 +55,16 @@ describe('transformPhonesValue', () => {
     });
 
     expect(result).toEqual({
-      additionalPhones: null,
       primaryPhoneNumber: '4155552671',
       primaryPhoneCallingCode: '+1',
       primaryPhoneCountryCode: 'US',
     });
+  });
+
+  it('preserves omitted phone subfields in partial updates', () => {
+    expect(
+      transformPhonesValue({ input: { primaryPhoneCountryCode: 'US' } }),
+    ).toEqual({ primaryPhoneCountryCode: 'US' });
   });
 
   it('should accept additionalPhones as an array of phone objects', () => {
