@@ -12,6 +12,7 @@ import { DeleteOneResolverFactory } from './delete-one-resolver.factory';
 import { FindDuplicatesResolverFactory } from './find-duplicates-resolver.factory';
 import { FindManyResolverFactory } from './find-many-resolver.factory';
 import { FindOneResolverFactory } from './find-one-resolver.factory';
+import { ImportPreflightResolverFactory } from './import-preflight-resolver.factory';
 import { MergeManyResolverFactory } from './merge-many-resolver.factory';
 import { UpdateOneResolverFactory } from './update-one-resolver.factory';
 
@@ -19,6 +20,7 @@ export const workspaceResolverBuilderFactories = [
   FindManyResolverFactory,
   FindOneResolverFactory,
   FindDuplicatesResolverFactory,
+  ImportPreflightResolverFactory,
   CreateManyResolverFactory,
   CreateOneResolverFactory,
   UpdateOneResolverFactory,
@@ -38,6 +40,7 @@ export const workspaceResolverBuilderMethodNames = {
     FindManyResolverFactory.methodName,
     FindOneResolverFactory.methodName,
     FindDuplicatesResolverFactory.methodName,
+    ImportPreflightResolverFactory.methodName,
     GroupByResolverFactory.methodName,
   ],
   mutations: [

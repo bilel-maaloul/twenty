@@ -214,6 +214,56 @@ describe('getSpreadsheetExportColumnDefinitions', () => {
     ]);
   });
 
+  it('keeps compound header qualification stable for exported subsets', () => {
+    const fields = [
+      field({
+        id: 'company-website',
+        name: 'website',
+        label: 'Website',
+        type: FieldMetadataType.LINKS,
+      }),
+      field({
+        id: 'social-website',
+        name: 'socialWebsite',
+        label: 'Social Website',
+        type: FieldMetadataType.LINKS,
+      }),
+    ];
+
+    const subsetColumns = getSpreadsheetExportColumnDefinitions([fields[1]], {
+      headerDisambiguationFieldMetadataItems: fields,
+    });
+
+    expect(subsetColumns.map((column) => column.header)).toEqual([
+      'Social Website / Link label',
+      'Social Website / Link URL',
+      'Social Website / Additional Links',
+    ]);
+  });
+
+  it('keeps simple duplicate header suffixes stable for exported subsets', () => {
+    const fields = [
+      field({
+        id: 'first-name',
+        name: 'firstName',
+        label: 'Name',
+        type: FieldMetadataType.TEXT,
+      }),
+      field({
+        id: 'second-name',
+        name: 'secondName',
+        label: 'Name',
+        type: FieldMetadataType.TEXT,
+      }),
+    ];
+
+    const subsetColumns = getSpreadsheetExportColumnDefinitions([fields[1]], {
+      headerDisambiguationFieldMetadataItems: fields,
+    });
+
+    expect(subsetColumns.map((column) => column.header)).toEqual(['Name (2)']);
+  });
+
   it('localizes component labels and preserves non-ASCII metadata labels', () => {
     const columns = getSpreadsheetExportColumnDefinitions(
       [

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { GraphQLObjectType, isObjectType } from 'graphql';
+import GraphQLJSON from 'graphql-type-json';
 import { isDefined } from 'twenty-shared/utils';
 
 import { type WorkspaceResolverBuilderMethodNames } from 'src/engine/api/graphql/workspace-resolver-builder/interfaces/workspace-resolvers-builder.interface';
@@ -79,30 +80,10 @@ export class RootTypeGenerator {
         ) {
           const name = getResolverName(objectMetadata, methodName);
           const args = getResolverArgs(methodName);
-          const key = computeObjectMetadataObjectTypeKey(
-            objectMetadata.nameSingular,
-            this.getObjectTypeDefinitionKindByMethodName(methodName),
-          );
-          const objectType = this.gqlTypesStorage.getGqlTypeByKey(key);
-
           const argsType = this.argsTypeGenerator.generate({
             args,
             objectMetadataSingularName: objectMetadata.nameSingular,
           });
-
-          if (!isDefined(objectType) || !isObjectType(objectType)) {
-            this.logger.error(
-              `Could not find a GraphQL type for ${objectMetadata.id} for method ${methodName}`,
-              {
-                objectMetadata,
-                methodName,
-              },
-            );
-
-            throw new Error(
-              `Could not find a GraphQL type for ${objectMetadata.id} for method ${methodName}`,
-            );
-          }
 
           const isMethodReturningArrayObjectType = [
             'updateMany',
@@ -114,9 +95,16 @@ export class RootTypeGenerator {
             'groupBy',
           ];
 
-          const outputType = applyTypeOptionsForOutputType(objectType, {
-            isArray: isMethodReturningArrayObjectType.includes(methodName),
-          });
+          const outputType =
+            methodName === 'importPreflight'
+              ? applyTypeOptionsForOutputType(GraphQLJSON, {
+                  isArray: true,
+                })
+              : this.getObjectOutputType(
+                  objectMetadata,
+                  methodName,
+                  isMethodReturningArrayObjectType,
+                );
 
           fieldConfigMap[name] = {
             type: outputType,
@@ -128,6 +116,36 @@ export class RootTypeGenerator {
     }
 
     return fieldConfigMap;
+  }
+
+  private getObjectOutputType(
+    objectMetadata: FlatObjectMetadata,
+    methodName: WorkspaceResolverBuilderMethodNames,
+    isMethodReturningArrayObjectType: string[],
+  ) {
+    const key = computeObjectMetadataObjectTypeKey(
+      objectMetadata.nameSingular,
+      this.getObjectTypeDefinitionKindByMethodName(methodName),
+    );
+    const objectType = this.gqlTypesStorage.getGqlTypeByKey(key);
+
+    if (!isDefined(objectType) || !isObjectType(objectType)) {
+      this.logger.error(
+        `Could not find a GraphQL type for ${objectMetadata.id} for method ${methodName}`,
+        {
+          objectMetadata,
+          methodName,
+        },
+      );
+
+      throw new Error(
+        `Could not find a GraphQL type for ${objectMetadata.id} for method ${methodName}`,
+      );
+    }
+
+    return applyTypeOptionsForOutputType(objectType, {
+      isArray: isMethodReturningArrayObjectType.includes(methodName),
+    });
   }
 
   private getObjectTypeDefinitionKindByMethodName(

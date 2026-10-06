@@ -11,6 +11,7 @@ import { type ArgMetadata } from 'src/engine/api/graphql/workspace-schema-builde
 import { GqlInputTypeDefinitionKind } from 'src/engine/api/graphql/workspace-schema-builder/enums/gql-input-type-definition-kind.enum';
 import { ShareWithInputType } from 'src/engine/api/graphql/workspace-schema-builder/graphql-types/input/share-with.input-type';
 import { UUIDScalarType } from 'src/engine/api/graphql/workspace-schema-builder/graphql-types/scalars';
+import GraphQLJSON from 'graphql-type-json';
 
 export const getResolverArgs = (
   type: WorkspaceResolverBuilderMethodNames,
@@ -111,6 +112,24 @@ export const getResolverArgs = (
         },
         data: {
           kind: GqlInputTypeDefinitionKind.Create,
+          isNullable: true,
+          isArray: true,
+        },
+      };
+    case 'importPreflight':
+      return {
+        data: {
+          kind: GqlInputTypeDefinitionKind.Create,
+          isNullable: false,
+          isArray: true,
+        },
+        rowIds: {
+          type: GraphQLString,
+          isNullable: false,
+          isArray: true,
+        },
+        sourceStates: {
+          type: GraphQLJSON,
           isNullable: true,
           isArray: true,
         },

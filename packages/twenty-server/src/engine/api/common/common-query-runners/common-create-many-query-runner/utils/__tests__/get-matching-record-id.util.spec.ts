@@ -1,6 +1,9 @@
 import { type ConflictingFieldGroup } from 'src/engine/api/common/common-query-runners/common-create-many-query-runner/types/conflicting-field-group.type';
 import { type PartialObjectRecordWithId } from 'src/engine/api/common/common-query-runners/common-create-many-query-runner/types/partial-object-record-with-id.type';
-import { getMatchingRecordId } from 'src/engine/api/common/common-query-runners/common-create-many-query-runner/utils/get-matching-record-id.util';
+import {
+  getMatchingRecordDetails,
+  getMatchingRecordId,
+} from 'src/engine/api/common/common-query-runners/common-create-many-query-runner/utils/get-matching-record-id.util';
 import { CommonQueryRunnerExceptionCode } from 'src/engine/api/common/common-query-runners/errors/common-query-runner.exception';
 
 describe('getMatchingRecordId', () => {
@@ -169,6 +172,34 @@ describe('getMatchingRecordId', () => {
     );
 
     expect(id).toBe('recordId1');
+  });
+
+  it('returns every matched constraint without treating one record as a conflict', () => {
+    const record = {
+      id: 'recordId1',
+      uniqueText: 'alpha',
+    };
+
+    const conflictingFieldGroups: ConflictingFieldGroup[] = [
+      {
+        baseFields: ['id'],
+        conflictingProperties: [{ fullPath: 'id', column: 'id' }],
+      },
+      {
+        baseFields: ['uniqueText'],
+        conflictingProperties: [
+          { fullPath: 'uniqueText', column: 'uniqueText' },
+        ],
+      },
+    ];
+
+    expect(
+      getMatchingRecordDetails(record, conflictingFieldGroups, existingRecords),
+    ).toEqual({
+      matchingRecordId: 'recordId1',
+      matchingRecordIds: ['recordId1'],
+      matchingFieldGroupIndexes: [0, 1],
+    });
   });
 
   it('throws when conflicting fields match different existing records', () => {

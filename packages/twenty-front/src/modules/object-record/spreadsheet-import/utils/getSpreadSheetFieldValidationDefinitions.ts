@@ -96,6 +96,7 @@ export const getSpreadSheetFieldValidationDefinitions = (
             {
               rule: 'function',
               isValid: (email: string) => emailSchema.safeParse(email).success,
+              canAcceptInvalidValue: () => true,
               errorMessage: `${fieldName} ${t`is not a valid email`}`,
               level: 'error',
             },
@@ -113,6 +114,15 @@ export const getSpreadSheetFieldValidationDefinitions = (
                   return additionalEmails.every(
                     (email: string) => emailSchema.safeParse(email).success,
                   );
+                } catch {
+                  return false;
+                }
+              },
+              canAcceptInvalidValue: (stringifiedAdditionalEmails: string) => {
+                try {
+                  return parseStringArrayFromCSV(
+                    stringifiedAdditionalEmails,
+                  ).every(isString);
                 } catch {
                   return false;
                 }

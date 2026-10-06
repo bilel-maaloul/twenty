@@ -1,9 +1,12 @@
 import { type FieldMetadataItem } from '@/object-metadata/types/FieldMetadataItem';
 import { type SpreadsheetColumns } from '@/spreadsheet-import/types/SpreadsheetColumns';
 import { type SpreadsheetImportFields } from '@/spreadsheet-import/types/SpreadsheetImportFields';
+import { type SpreadsheetImportHeaderDefinition } from '@/spreadsheet-import/types/SpreadsheetImportHeaderDefinition';
 import { type SpreadsheetImportImportValidationResult } from '@/spreadsheet-import/types/SpreadsheetImportImportValidationResult';
 import { type ImportedRow } from '@/spreadsheet-import/types/SpreadsheetImportImportedRow';
 import { type ImportedStructuredRow } from '@/spreadsheet-import/types/SpreadsheetImportImportedStructuredRow';
+import { type SpreadsheetImportPreflightResult } from '@/spreadsheet-import/types/SpreadsheetImportPreflightResult';
+import { type SpreadsheetImportSubmissionResult } from '@/spreadsheet-import/types/SpreadsheetImportSubmissionResult';
 import { type SpreadsheetImportRowHook } from '@/spreadsheet-import/types/SpreadsheetImportRowHook';
 import { type SpreadsheetImportTableHook } from '@/spreadsheet-import/types/SpreadsheetImportTableHook';
 import { type SpreadsheetImportStep } from '@/spreadsheet-import/steps/types/SpreadsheetImportStep';
@@ -28,10 +31,13 @@ export type SpreadsheetImportDialogOptions = {
   rowHook?: SpreadsheetImportRowHook;
   // Runs after column matching and on entry change
   tableHook?: SpreadsheetImportTableHook;
+  preflightStepHook?: (
+    importedStructuredRows: Array<ImportedStructuredRow & { __index: string }>,
+  ) => Promise<SpreadsheetImportPreflightResult[]>;
   onSubmit: (
     validationResult: SpreadsheetImportImportValidationResult,
     file: File,
-  ) => Promise<void>;
+  ) => Promise<SpreadsheetImportSubmissionResult | void>;
   onAbortSubmit?: () => void;
   // Allows submitting with errors. Default: true
   allowInvalidSubmit?: boolean;
@@ -43,6 +49,7 @@ export type SpreadsheetImportDialogOptions = {
   autoMapHeaders?: boolean;
   // Headers matching accuracy: 1 for strict and up for more flexible matching
   autoMapDistance?: number;
+  spreadsheetImportHeaderDefinitions?: SpreadsheetImportHeaderDefinition[];
   initialStepState?: SpreadsheetImportStep;
   // Sets SheetJS dateNF option. If date parsing is applied, date will be formatted e.g. "yyyy-mm-dd hh:mm:ss", "m/d/yy h:mm", 'mmm-yy', etc.
   dateFormat?: string;

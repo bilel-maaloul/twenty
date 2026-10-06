@@ -4,11 +4,13 @@ describe('transformLinksValue', () => {
   it('should handle null/undefined/empty object values', () => {
     expect(transformLinksValue({ input: null })).toBeNull();
     expect(transformLinksValue({ input: undefined })).toBeUndefined();
-    expect(transformLinksValue({ input: {} })).toEqual({
-      primaryLinkLabel: null,
-      primaryLinkUrl: null,
-      secondaryLinks: null,
-    });
+    expect(transformLinksValue({ input: {} })).toEqual({});
+  });
+
+  it('preserves omitted primary and secondary link fields in partial updates', () => {
+    expect(
+      transformLinksValue({ input: { primaryLinkUrl: 'https://example.com' } }),
+    ).toEqual({ primaryLinkUrl: 'https://example.com' });
   });
 
   describe('primary link', () => {

@@ -2,6 +2,7 @@ import { type ObjectRecord } from 'twenty-shared/types';
 
 import { type CommonFindDuplicatesOutputItem } from 'src/engine/api/common/types/common-find-duplicates-output-item.type';
 import { type CommonFindManyOutput } from 'src/engine/api/common/types/common-find-many-output.type';
+import { type CommonImportPreflightResult } from 'src/engine/api/common/types/common-import-preflight-result.type';
 import { type CommonGroupByOutputItem } from 'src/engine/api/common/types/common-group-by-output-item.type';
 import {
   CommonExtendedInput,
@@ -13,7 +14,8 @@ export type CommonQueryResult =
   | ObjectRecord
   | CommonGroupByOutputItem[]
   | CommonFindManyOutput
-  | CommonFindDuplicatesOutputItem[];
+  | CommonFindDuplicatesOutputItem[]
+  | CommonImportPreflightResult[];
 
 export type CommonQueryExecutionResult<
   Output extends CommonQueryResult,

@@ -10,6 +10,10 @@ export type SpreadsheetImportField = {
   key: string;
   // Field's metadata item id - same for all associated nested fields
   fieldMetadataItemId: string;
+  fieldMetadataName?: string;
+  canIgnoreIncomingValue?: boolean;
+  cannotIgnoreIncomingReason?: 'required' | 'unique' | 'relation';
+  isLabelIdentifier?: boolean;
   // UI-facing additional information displayed via tooltip and ? icon
   description?: string;
   fieldValidationDefinitions?: SpreadsheetImportFieldValidationDefinition[];

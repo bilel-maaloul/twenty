@@ -1,3 +1,4 @@
+import { type CommonImportPreflightResult } from 'src/engine/api/common/types/common-import-preflight-result.type';
 import { IConnection } from 'src/engine/api/graphql/workspace-query-runner/interfaces/connection.interface';
 import { IEdge } from 'src/engine/api/graphql/workspace-query-runner/interfaces/edge.interface';
 import { IGroupByConnection } from 'src/engine/api/graphql/workspace-query-runner/interfaces/group-by-connection.interface';
@@ -8,4 +9,5 @@ export type ResolverOutput =
   | ObjectRecord[] // createMany, updateMany, deleteMany, destroyMany, restoreMany
   | IConnection<ObjectRecord, IEdge<ObjectRecord>> // findMany
   | IConnection<ObjectRecord, IEdge<ObjectRecord>>[] // findDuplicates
-  | IGroupByConnection<ObjectRecord, IEdge<ObjectRecord>>; // groupBy
+  | IGroupByConnection<ObjectRecord, IEdge<ObjectRecord>> // groupBy
+  | CommonImportPreflightResult[]; // importPreflight

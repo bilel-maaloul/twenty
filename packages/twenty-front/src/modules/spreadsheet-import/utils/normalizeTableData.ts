@@ -9,15 +9,25 @@ import { spreadsheetImportParseMultiSelectOptionsOrThrow } from '@/spreadsheet-i
 import { isDefined } from 'twenty-shared/utils';
 import { z } from 'zod';
 import { normalizeCheckboxValue } from './normalizeCheckboxValue';
+import { getSpreadsheetImportSourceState } from './getSpreadsheetImportSourceState';
 
 export const normalizeTableData = (
   columns: SpreadsheetColumns,
   data: ImportedRow[],
   fields: SpreadsheetImportFields,
 ) =>
-  data.map((row) =>
-    columns.reduce((acc, column, index) => {
+  data.map((row) => {
+    const sourceStates: Record<string, 'EMPTY' | 'VALUE'> = {};
+    const normalizedRow = columns.reduce((acc, column, index) => {
       const curr = row[index];
+      if (
+        column.type === SpreadsheetColumnType.matched ||
+        column.type === SpreadsheetColumnType.matchedCheckbox ||
+        column.type === SpreadsheetColumnType.matchedSelect ||
+        column.type === SpreadsheetColumnType.matchedSelectOptions
+      ) {
+        sourceStates[column.value] = getSpreadsheetImportSourceState(curr);
+      }
       switch (column.type) {
         case SpreadsheetColumnType.matchedCheckbox: {
           const field = fields.find((field) => field.key === column.value);
@@ -43,6 +53,8 @@ export const normalizeTableData = (
             acc[column.value] = booleanMatchKey
               ? booleanMatch
               : normalizeCheckboxValue(curr);
+          } else if (curr === undefined || curr === '') {
+            acc[column.value] = undefined;
           } else {
             acc[column.value] = normalizeCheckboxValue(curr);
           }
@@ -98,8 +110,16 @@ export const normalizeTableData = (
         case SpreadsheetColumnType.ignored: {
           return acc;
         }
+        case SpreadsheetColumnType.recognizedReadOnly: {
+          return acc;
+        }
         default:
           return acc;
       }
-    }, {} as ImportedStructuredRow),
-  );
+    }, {} as ImportedStructuredRow);
+
+    return {
+      ...normalizedRow,
+      __sourceStates: JSON.stringify(sourceStates),
+    } as ImportedStructuredRow;
+  });

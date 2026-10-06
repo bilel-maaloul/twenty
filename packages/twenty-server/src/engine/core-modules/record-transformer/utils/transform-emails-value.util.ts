@@ -10,29 +10,35 @@ export const transformEmailsValue = (
     return value;
   }
 
-  let additionalEmails: string | null = value?.additionalEmails;
-  const primaryEmail = isNonEmptyString(value?.primaryEmail)
-    ? value.primaryEmail.toLowerCase()
-    : null;
+  const result: Record<string, unknown> = {};
 
-  if (additionalEmails) {
-    try {
-      const emailArray = (
-        isNonEmptyString(additionalEmails)
-          ? JSON.parse(additionalEmails)
-          : additionalEmails
-      ) as string[];
-
-      additionalEmails = isNonEmptyArray(emailArray)
-        ? JSON.stringify(emailArray.map((email) => email.toLowerCase()))
-        : null;
-    } catch {
-      /* empty */
-    }
+  if (Object.prototype.hasOwnProperty.call(value, 'primaryEmail')) {
+    result.primaryEmail = isNonEmptyString(value.primaryEmail)
+      ? value.primaryEmail.toLowerCase()
+      : null;
   }
 
-  return {
-    primaryEmail,
-    additionalEmails,
-  };
+  let additionalEmails: string | null | undefined = value?.additionalEmails;
+
+  if (Object.prototype.hasOwnProperty.call(value, 'additionalEmails')) {
+    if (additionalEmails) {
+      try {
+        const emailArray = (
+          isNonEmptyString(additionalEmails)
+            ? JSON.parse(additionalEmails)
+            : additionalEmails
+        ) as string[];
+
+        additionalEmails = isNonEmptyArray(emailArray)
+          ? JSON.stringify(emailArray.map((email) => email.toLowerCase()))
+          : null;
+      } catch {
+        /* empty */
+      }
+    }
+
+    result.additionalEmails = additionalEmails;
+  }
+
+  return result;
 };

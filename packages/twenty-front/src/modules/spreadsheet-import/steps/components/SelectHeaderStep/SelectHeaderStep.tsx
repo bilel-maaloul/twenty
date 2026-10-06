@@ -12,6 +12,7 @@ import { useComputeColumnSuggestionsAndAutoMatch } from '@/spreadsheet-import/ho
 import { useSpreadsheetImportInternal } from '@/spreadsheet-import/hooks/useSpreadsheetImportInternal';
 import { type SpreadsheetImportStep } from '@/spreadsheet-import/steps/types/SpreadsheetImportStep';
 import { SpreadsheetImportStepType } from '@/spreadsheet-import/steps/types/SpreadsheetImportStepType';
+import { getSpreadsheetImportHeaderValidationErrorMessage } from '@/spreadsheet-import/utils/getStrictMatchedColumns';
 import { useLingui } from '@lingui/react/macro';
 import { SelectHeaderTable } from './components/SelectHeaderTable';
 
@@ -59,15 +60,26 @@ export const SelectHeaderStep = ({
         const { importedRows: data, headerRow: headerValues } =
           await selectHeaderStepHook(...args);
 
-        await computeColumnSuggestionsAndAutoMatch({
-          headerValues,
+        const headerValidation = await computeColumnSuggestionsAndAutoMatch({
+          headerValues: headerValues ?? [],
           data,
         });
+
+        if (
+          headerValidation &&
+          (headerValidation.recognizedColumnCount === 0 ||
+            headerValidation.missingHeaders.length > 0)
+        ) {
+          throw new Error(
+            getSpreadsheetImportHeaderValidationErrorMessage(headerValidation),
+          );
+        }
 
         setCurrentStepState({
           type: SpreadsheetImportStepType.matchColumns,
           data,
-          headerValues,
+          headerValues: headerValues ?? [],
+          headerValidationErrors: headerValidation?.errors,
         });
         setPreviousStepState(currentStepState);
         nextStep();

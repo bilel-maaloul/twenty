@@ -24,6 +24,7 @@ export type SpreadsheetImportRegexValidation = {
 export type SpreadsheetImportFunctionValidation = {
   rule: 'function';
   isValid: (value: string) => boolean;
+  canAcceptInvalidValue?: (value: string) => boolean;
   errorMessage: string;
   level?: SpreadsheetImportErrorLevel;
 };

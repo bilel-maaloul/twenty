@@ -28,6 +28,7 @@ import { type SpreadsheetColumn } from '@/spreadsheet-import/types/SpreadsheetCo
 import { SpreadsheetColumnType } from '@/spreadsheet-import/types/SpreadsheetColumnType';
 import { type SpreadsheetColumns } from '@/spreadsheet-import/types/SpreadsheetColumns';
 import { type SpreadsheetImportField } from '@/spreadsheet-import/types/SpreadsheetImportField';
+import { type SpreadsheetImportHeaderValidationError } from '@/spreadsheet-import/utils/getStrictMatchedColumns';
 import { useAtomFamilySelectorState } from '@/ui/utilities/state/jotai/hooks/useAtomFamilySelectorState';
 import { ScrollWrapper } from '@/ui/utilities/scroll/components/ScrollWrapper';
 import { Trans, useLingui } from '@lingui/react/macro';
@@ -61,6 +62,7 @@ export type MatchColumnsStepProps = {
   currentStepState: SpreadsheetImportStep;
   nextStep: () => void;
   onError: (message: string) => void;
+  headerValidationErrors?: SpreadsheetImportHeaderValidationError[];
 };
 
 export const MatchColumnsStep = ({
@@ -72,6 +74,7 @@ export const MatchColumnsStep = ({
   currentStepState,
   nextStep,
   onError,
+  headerValidationErrors = [],
 }: MatchColumnsStepProps) => {
   const { enqueueDialog } = useDialogManager();
   const dataExample = data.slice(0, 2);
@@ -241,12 +244,16 @@ export const MatchColumnsStep = ({
     t,
   ]);
 
-  const hasMatchedColumns = columns.some(
-    (column) =>
-      ![SpreadsheetColumnType.ignored, SpreadsheetColumnType.empty].includes(
-        column.type,
-      ),
+  const hasMatchedColumns = columns.some((column) =>
+    [
+      SpreadsheetColumnType.matched,
+      SpreadsheetColumnType.matchedCheckbox,
+      SpreadsheetColumnType.matchedSelect,
+      SpreadsheetColumnType.matchedSelectOptions,
+    ].includes(column.type),
   );
+
+  const hasHeaderValidationErrors = headerValidationErrors.length > 0;
 
   const onBackConfirmation = () => {
     onBack?.();
@@ -306,7 +313,7 @@ export const MatchColumnsStep = ({
         continueTitle={t`Next Step`}
         backTitle={t`Restart Import`}
         onBack={openRestartDialog}
-        isContinueDisabled={!hasMatchedColumns}
+        isContinueDisabled={!hasMatchedColumns || hasHeaderValidationErrors}
       />
     </>
   );

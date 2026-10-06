@@ -28,6 +28,7 @@ export enum CommonQueryNames {
   UPDATE_ONE = 'updateOne',
   UPDATE_MANY = 'updateMany',
   FIND_DUPLICATES = 'findDuplicates',
+  IMPORT_PREFLIGHT = 'importPreflight',
   RESTORE_MANY = 'restoreMany',
   RESTORE_ONE = 'restoreOne',
   MERGE_MANY = 'mergeMany',
@@ -107,6 +108,18 @@ export interface FindDuplicatesQueryArgs {
   ids?: string[];
 }
 
+export interface ImportPreflightQueryArgs {
+  data: Partial<ObjectRecord>[];
+  rowIds: string[];
+  sourceStates?: Array<
+    Array<{
+      fieldMetadataId: string;
+      subFieldPath: string[];
+      state: 'EMPTY' | 'VALUE';
+    }>
+  >;
+}
+
 export interface RestoreManyQueryArgs {
   filter: ObjectRecordFilter;
 }
@@ -134,6 +147,7 @@ export type CommonQueryArgs =
   | UpdateOneQueryArgs
   | UpdateManyQueryArgs
   | FindDuplicatesQueryArgs
+  | ImportPreflightQueryArgs
   | RestoreManyQueryArgs
   | RestoreOneQueryArgs;
 

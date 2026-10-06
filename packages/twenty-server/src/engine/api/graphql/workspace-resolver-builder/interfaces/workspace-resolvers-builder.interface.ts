@@ -45,6 +45,20 @@ export interface FindDuplicatesResolverArgs<
   data?: Data[];
 }
 
+export interface ImportPreflightResolverArgs<
+  Data extends Partial<ObjectRecord> = Partial<ObjectRecord>,
+> {
+  data: Data[];
+  rowIds: string[];
+  sourceStates?: Array<
+    Array<{
+      fieldMetadataId: string;
+      subFieldPath: string[];
+      state: 'EMPTY' | 'VALUE';
+    }>
+  >;
+}
+
 export interface CreateOneResolverArgs<
   Data extends Partial<ObjectRecord> = Partial<ObjectRecord>,
 > {
@@ -143,6 +157,7 @@ export type ResolverArgs =
   | DeleteOneResolverArgs
   | DestroyManyResolverArgs
   | FindDuplicatesResolverArgs
+  | ImportPreflightResolverArgs
   | FindManyResolverArgs
   | FindOneResolverArgs
   | MergeManyResolverArgs

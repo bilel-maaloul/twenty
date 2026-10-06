@@ -4,6 +4,12 @@ import { STANDARD_OBJECTS } from '@/metadata/constants/standard-object.constant'
 // change is intentional and ships with a coordinated backfill of existing
 // workspaces before updating the snapshot.
 describe('STANDARD_OBJECTS universal identifiers', () => {
+  it('does not configure Company Domain Name as a unique index', () => {
+    expect(STANDARD_OBJECTS.company.indexes).not.toHaveProperty(
+      'domainNameUniqueIndex',
+    );
+  });
+
   it('should never change without an explicit snapshot update', () => {
     expect(STANDARD_OBJECTS).toMatchSnapshot();
   });

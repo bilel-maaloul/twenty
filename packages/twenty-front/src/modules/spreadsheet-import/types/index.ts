@@ -1,7 +1,16 @@
 export type { SpreadsheetImportDialogOptions } from './SpreadsheetImportDialogOptions';
+export type {
+  SpreadsheetImportDuplicateGroup,
+  SpreadsheetImportDuplicateResolution,
+  SpreadsheetImportDuplicateResolutionStatus,
+} from './SpreadsheetImportDuplicateGroup';
 export type { SpreadsheetImportErrorLevel } from './SpreadsheetImportErrorLevel';
 export type { SpreadsheetImportField } from './SpreadsheetImportField';
 export type { SpreadsheetImportFields } from './SpreadsheetImportFields';
+export type {
+  SpreadsheetImportHeaderDefinition,
+  SpreadsheetImportHeaderDefinitionKind,
+} from './SpreadsheetImportHeaderDefinition';
 export type {
   SpreadsheetImportCheckbox,
   SpreadsheetImportFieldType,
@@ -21,5 +30,13 @@ export type { ImportedRow } from './SpreadsheetImportImportedRow';
 export type { ImportedStructuredRow } from './SpreadsheetImportImportedStructuredRow';
 export type { SpreadsheetImportImportValidationResult } from './SpreadsheetImportImportValidationResult';
 export type { SpreadsheetImportInfo } from './SpreadsheetImportInfo';
+export type {
+  SpreadsheetImportFieldDecision,
+  SpreadsheetImportFieldDifference,
+  SpreadsheetImportPreflightAction,
+  SpreadsheetImportPreflightResult,
+  SpreadsheetImportPreflightStatus,
+} from './SpreadsheetImportPreflightResult';
+export type { SpreadsheetImportSubmissionResult } from './SpreadsheetImportSubmissionResult';
 export type { SpreadsheetImportRowHook } from './SpreadsheetImportRowHook';
 export type { SpreadsheetImportTableHook } from './SpreadsheetImportTableHook';

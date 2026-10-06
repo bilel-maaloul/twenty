@@ -15,7 +15,10 @@ const GRAPHQL_RESOLVER_NAME_ROWS_REQUIREMENT = {
 } as const satisfies WorkspaceCacheRowsRequirement;
 
 @Injectable()
-@WorkspaceCache('graphQLResolverNameMap', { packingPonderation: 4 })
+@WorkspaceCache('graphQLResolverNameMap', {
+  packingPonderation: 4,
+  localDataOnly: true,
+})
 export class WorkspaceResolverNameMapCacheService extends WorkspaceCacheProvider<
   Record<string, ResolverNameMapEntry>
 > {

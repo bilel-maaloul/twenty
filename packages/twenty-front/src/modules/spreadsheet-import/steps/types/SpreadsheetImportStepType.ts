@@ -5,5 +5,6 @@ export enum SpreadsheetImportStepType {
   matchColumns = 'matchColumns',
   validateData = 'validateData',
   importData = 'importData',
+  importResult = 'importResult',
   loading = 'loading',
 }

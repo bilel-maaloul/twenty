@@ -13,7 +13,6 @@ import { useGenerateDepthRecordGqlFieldsFromObject } from '@/object-record/graph
 import { EXPORT_TABLE_DATA_DEFAULT_PAGE_SIZE } from '@/object-record/object-options-dropdown/constants/ExportTableDataDefaultPageSize';
 import { useObjectOptionsForBoard } from '@/object-record/object-options-dropdown/hooks/useObjectOptionsForBoard';
 import { visibleRecordFieldsComponentSelector } from '@/object-record/record-field/states/visibleRecordFieldsComponentSelector';
-import { type RecordField } from '@/object-record/record-field/types/RecordField';
 import { useFilterValueDependencies } from '@/object-record/record-filter/hooks/useFilterValueDependencies';
 import { useFindManyRecordIndexTableParams } from '@/object-record/record-index/hooks/useFindManyRecordIndexTableParams';
 import { recordIndexGroupFieldMetadataItemComponentState } from '@/object-record/record-index/states/recordIndexGroupFieldMetadataComponentState';
@@ -25,7 +24,7 @@ import {
   getSpreadsheetExportColumnDefinitions,
   type SpreadsheetExportColumnDefinition,
 } from '@/spreadsheet/utils/getSpreadsheetExportColumnDefinitions';
-import { isDefined } from 'twenty-shared/utils';
+import { getSpreadsheetExportFieldMetadataItems } from '@/spreadsheet/utils/getSpreadsheetExportFieldMetadataItems';
 
 export const sleep = (ms: number) =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -128,14 +127,10 @@ export const useRecordIndexLazyFetchRecords = ({
   );
 
   const finalFieldMetadataItems: FieldMetadataItem[] = [
-    ...visibleRecordFields
-      .map((field: RecordField) =>
-        objectMetadataItem.fields.find(
-          (fieldMetadataItem) =>
-            fieldMetadataItem.id === field.fieldMetadataItemId,
-        ),
-      )
-      .filter(isDefined),
+    ...getSpreadsheetExportFieldMetadataItems({
+      objectMetadataItem,
+      recordFields: visibleRecordFields,
+    }),
     ...(hiddenKanbanFieldColumn && viewType === ViewType.KANBAN
       ? objectMetadataItem.fields.filter(
           (fieldMetadataItem) =>
@@ -146,6 +141,9 @@ export const useRecordIndexLazyFetchRecords = ({
 
   const finalColumns = getSpreadsheetExportColumnDefinitions(
     finalFieldMetadataItems,
+    {
+      headerDisambiguationFieldMetadataItems: finalFieldMetadataItems,
+    },
   );
 
   const { progress, isDownloading, fetchAllRecords } = useLazyFetchAllRecords({

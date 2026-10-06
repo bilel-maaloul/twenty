@@ -10,13 +10,19 @@ import {
   CommonQueryRunnerExceptionCode,
 } from 'src/engine/api/common/common-query-runners/errors/common-query-runner.exception';
 
-export const getMatchingRecordId = (
+export type MatchingRecordDetails = {
+  matchingRecordId?: string;
+  matchingRecordIds: string[];
+  matchingFieldGroupIndexes: number[];
+};
+
+export const getMatchingRecordDetails = (
   record: Partial<ObjectRecord>,
   conflictingFieldGroups: ConflictingFieldGroup[],
   existingRecords: PartialObjectRecordWithId[],
-): string | undefined => {
-  const matchingRecordIds = conflictingFieldGroups.reduce<string[]>(
-    (acc, fieldGroup) => {
+): MatchingRecordDetails => {
+  const matchingRecordIdsByFieldGroup = conflictingFieldGroups.map(
+    (fieldGroup) => {
       const requestFieldValues = fieldGroup.conflictingProperties.map(
         (conflictingProperty) => ({
           conflictingProperty,
@@ -25,7 +31,7 @@ export const getMatchingRecordId = (
       );
 
       if (requestFieldValues.some(({ value }) => !isDefined(value))) {
-        return acc;
+        return undefined;
       }
 
       const matchingRecord = existingRecords.find((existingRecord) =>
@@ -40,15 +46,47 @@ export const getMatchingRecordId = (
       );
 
       if (isDefined(matchingRecord)) {
-        acc.push(matchingRecord.id);
+        return matchingRecord.id;
       }
 
-      return acc;
+      return undefined;
     },
-    [],
   );
 
-  if ([...new Set(matchingRecordIds)].length > 1) {
+  const matchingFieldGroupIndexes = matchingRecordIdsByFieldGroup.reduce<
+    number[]
+  >((acc, matchingRecordId, index) => {
+    if (isDefined(matchingRecordId)) {
+      acc.push(index);
+    }
+
+    return acc;
+  }, []);
+
+  const matchingRecordIds = [
+    ...new Set(matchingRecordIdsByFieldGroup.filter(isDefined)),
+  ];
+
+  return {
+    matchingRecordId:
+      matchingRecordIds.length === 1 ? matchingRecordIds[0] : undefined,
+    matchingRecordIds,
+    matchingFieldGroupIndexes,
+  };
+};
+
+export const getMatchingRecordId = (
+  record: Partial<ObjectRecord>,
+  conflictingFieldGroups: ConflictingFieldGroup[],
+  existingRecords: PartialObjectRecordWithId[],
+): string | undefined => {
+  const matchingRecordDetails = getMatchingRecordDetails(
+    record,
+    conflictingFieldGroups,
+    existingRecords,
+  );
+
+  if (matchingRecordDetails.matchingRecordIds.length > 1) {
     const conflictingFieldsValues = conflictingFieldGroups
       .map((group) => {
         const values = group.conflictingProperties
@@ -82,5 +120,5 @@ export const getMatchingRecordId = (
     );
   }
 
-  return matchingRecordIds[0];
+  return matchingRecordDetails.matchingRecordId;
 };

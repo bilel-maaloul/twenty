@@ -29,6 +29,7 @@ export type SpreadsheetExportColumnDefinition = {
 
 export type GetSpreadsheetExportColumnDefinitionsOptions = {
   includeRecordId?: boolean;
+  headerDisambiguationFieldMetadataItems?: SpreadsheetExportFieldMetadata[];
 };
 
 const MOJIBAKE_MARKER_CODE_POINTS = new Set([0xc3, 0xc2, 0xe2]);
@@ -362,23 +363,40 @@ const createFieldColumns = (
 
 export const ensureSpreadsheetExportColumnHeadersUnique = (
   columns: SpreadsheetExportColumnDefinition[],
+  headerDisambiguationColumns: SpreadsheetExportColumnDefinition[] = columns,
 ): SpreadsheetExportColumnDefinition[] => {
-  const headerCounts = new Map<string, number>();
+  const columnsByHeader = new Map<
+    string,
+    SpreadsheetExportColumnDefinition[]
+  >();
 
-  for (const column of columns) {
-    headerCounts.set(column.header, (headerCounts.get(column.header) ?? 0) + 1);
+  for (const column of headerDisambiguationColumns) {
+    const columnsWithHeader = columnsByHeader.get(column.header) ?? [];
+    columnsWithHeader.push(column);
+    columnsByHeader.set(column.header, columnsWithHeader);
   }
 
   const usedHeaders = new Set<string>();
   const nextSuffixByHeader = new Map<string, number>();
 
   return columns.map((column) => {
+    const columnsWithSameHeader = columnsByHeader.get(column.header) ?? [];
+    const columnPositionInDisambiguationScope = columnsWithSameHeader.findIndex(
+      (scopeColumn) => scopeColumn.field === column.field,
+    );
+    const isHeaderDuplicatedInDisambiguationScope =
+      columnsWithSameHeader.length > 1;
     const baseHeader =
       column.parentHeader !== undefined &&
-      (headerCounts.get(column.header) ?? 0) > 1
+      isHeaderDuplicatedInDisambiguationScope
         ? column.parentHeader + ' / ' + column.header
         : column.header;
-    let nextSuffix = nextSuffixByHeader.get(baseHeader) ?? 1;
+    let nextSuffix =
+      column.parentHeader === undefined &&
+      isHeaderDuplicatedInDisambiguationScope &&
+      columnPositionInDisambiguationScope >= 0
+        ? columnPositionInDisambiguationScope + 1
+        : (nextSuffixByHeader.get(baseHeader) ?? 1);
     let header =
       nextSuffix === 1 ? baseHeader : baseHeader + ' (' + nextSuffix + ')';
 
@@ -399,9 +417,18 @@ export const getSpreadsheetExportColumnDefinitions = (
   options: GetSpreadsheetExportColumnDefinitionsOptions = {},
 ): SpreadsheetExportColumnDefinition[] => {
   const fieldColumns = fieldMetadataItems.flatMap(createFieldColumns);
+  const headerDisambiguationColumns =
+    options.headerDisambiguationFieldMetadataItems
+      ? options.headerDisambiguationFieldMetadataItems.flatMap(
+          createFieldColumns,
+        )
+      : fieldColumns;
   const columns = options.includeRecordId
     ? [getSpreadsheetExportRecordIdColumnDefinition(), ...fieldColumns]
     : fieldColumns;
 
-  return ensureSpreadsheetExportColumnHeadersUnique(columns);
+  return ensureSpreadsheetExportColumnHeadersUnique(
+    columns,
+    headerDisambiguationColumns,
+  );
 };

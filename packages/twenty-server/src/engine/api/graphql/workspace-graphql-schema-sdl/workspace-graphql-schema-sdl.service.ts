@@ -23,6 +23,9 @@ import { WorkspaceCacheStorageService } from 'src/engine/workspace-cache-storage
 import { combineCacheHashes } from 'src/engine/workspace-cache/utils/combine-cache-hashes.util';
 import { TWENTY_STANDARD_APPLICATION } from 'src/engine/workspace-manager/twenty-standard-application/constants/twenty-standard-applications';
 
+// Resolver registrations are code-defined and are not represented in metadata hashes.
+const WORKSPACE_GRAPHQL_SCHEMA_GENERATION_VERSION = '2';
+
 export type WorkspaceGraphqlSchemaSDLResult = {
   sdl: string;
   usedScalarNames: string[];
@@ -115,10 +118,10 @@ export class WorkspaceGraphqlSchemaSDLService {
       }
     }
 
-    const metadataCacheHash = combineCacheHashes(
+    const metadataCacheHash = `${combineCacheHashes(
       hashes,
       SCHEMA_SDL_CACHE_DEPENDENCIES,
-    );
+    )}-${WORKSPACE_GRAPHQL_SCHEMA_GENERATION_VERSION}`;
 
     const [cachedSdl, cachedUsedScalarNames] = await Promise.all([
       this.workspaceCacheStorageService.getGraphQLTypeDefs(

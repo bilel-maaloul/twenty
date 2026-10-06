@@ -26,6 +26,12 @@ const StyledErrorMessage = styled.span`
   margin-top: ${themeCssVariables.spacing[1]};
 `;
 
+const StyledReadOnlyMessage = styled.span`
+  color: ${themeCssVariables.font.color.tertiary};
+  font-size: ${themeCssVariables.font.size.sm};
+  font-weight: ${themeCssVariables.font.weight.regular};
+`;
+
 type TemplateColumnProps = {
   columns: SpreadsheetColumns;
   columnIndex: number;
@@ -69,6 +75,14 @@ export const TemplateColumn = ({
   const ignoreValue = selectOptions.find(
     ({ value }) => value === DO_NOT_IMPORT_OPTION_KEY,
   );
+
+  if (column.type === SpreadsheetColumnType.recognizedReadOnly) {
+    return (
+      <StyledContainer>
+        <StyledReadOnlyMessage>{column.message}</StyledReadOnlyMessage>
+      </StyledContainer>
+    );
+  }
 
   return (
     <StyledContainer>

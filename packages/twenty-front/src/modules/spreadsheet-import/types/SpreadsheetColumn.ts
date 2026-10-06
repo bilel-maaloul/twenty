@@ -13,6 +13,13 @@ type SpreadsheetIgnoredColumn = {
   header: string;
 };
 
+type SpreadsheetRecognizedReadOnlyColumn = {
+  type: SpreadsheetColumnType.recognizedReadOnly;
+  index: number;
+  header: string;
+  message: string;
+};
+
 type SpreadsheetMatchedColumn = {
   type: SpreadsheetColumnType.matched;
   index: number;
@@ -54,6 +61,7 @@ export type SpreadsheetErrorColumn = {
 export type SpreadsheetColumn =
   | SpreadsheetEmptyColumn
   | SpreadsheetIgnoredColumn
+  | SpreadsheetRecognizedReadOnlyColumn
   | SpreadsheetMatchedColumn
   | SpreadsheetMatchedSwitchColumn
   | SpreadsheetMatchedSelectColumn
